@@ -53,7 +53,26 @@
 
 电脑端无需开放端口：NAT/防火墙后的 DSH 主动外连 `wss://...:8443`。
 
-### 3.2 远程会话读取
+### 3.2 原生工作区镜像
+
+为了让远程会话出现在 DSH 左侧「工作区」而不是插件页面，Host 半把远程会话**镜像**成本机会话：
+
+1. 每台在线电脑在 `~/.dsh/dsh-link/mirrors/<deviceId>/` 建一个真实目录，并注册为工作区
+   `[远程] <设备名>`；
+2. 为最近 10 个非子代理远程会话创建本机镜像会话（`session-dshlink-<hash>`），把远程
+   `session.history` 映射成 DSH 原生事件（`turn/start`、`user/message`、`step/start`、
+   `assistant/message`、`step/end`、`turn/end`）；
+3. 打开镜像会话时，Web UI 的会话头组件向 Host 发 `watch`，Host 订阅远程
+   `session.follow`，新记录实时追加到本机会话日志；
+4. 在原生输入框发送时，`agent/pre-step` 门禁拦截本机模型请求，把 prompt 转发到远程 Host，
+   远程回复再通过 watch 追加回来；
+5. 镜像映射存于 `~/.dsh/dsh-link/mirrors.json`（0600），只含设备名、标题、远程 seq，
+   不含 token。
+
+这样侧边栏分组、会话行、对话 UI、工具卡片全部复用 DSH 原生实现；插件页面只保留为
+设备/配对/Android 管理入口。
+
+### 3.3 远程会话读取
 
 Host 半把 DSH 的 `sessionController` 服务封装成一组方法：
 
@@ -69,13 +88,13 @@ Host 半把 DSH 的 `sessionController` 服务封装成一组方法：
 DSH 的原始事件被压成 7 种 `ChatRecord`（user / assistant / tool-call / tool-result /
 turn-start / turn-end / error），单条文本有上限，避免手机端收到几 MB 的日志。
 
-### 3.3 远程会话写入
+### 3.4 远程会话写入
 
 `session.prompt` 使用 DSH 自己的 `sessionController.prompt()`，因此远程写入与在
 那台电脑上直接输入完全等价：同一个 Agent、同一个权限、同一份会话日志。手机/另一台
 电脑只是「另一个输入源」。
 
-### 3.4 手机语音
+### 3.5 手机语音
 
 ```
 手机录音 PCM16 16k → 手机生成 WAV → base64
@@ -86,7 +105,7 @@ turn-start / turn-end / error），单条文本有上限，避免手机端收到
 语音识别始终发生在**目标电脑**（用户要求），手机不下载模型、不上传云端。
 识别结果只回填输入框，不自动发送。
 
-### 3.5 本机 Web UI
+### 3.6 本机 Web UI
 
 插件 Host 半在 DSH Web 服务器注册两条同源认证路由：
 
@@ -130,7 +149,9 @@ dsh-link/
 
 - 个人自用设计，没有多租户、角色、审计；token 即全部权限。
 - relay 不做离线消息队列：目标电脑没开 DSH 时，远程调用立即失败。
-- 远程会话视图是只读渲染 + 发送/停止，不包含文件上传、权限弹窗应答、模型切换等
-  DSH 完整 UI 功能；这些操作仍可在目标电脑本地完成。
+- 远程会话是镜像：每台电脑只同步最近 10 个非子代理会话；远程删除不会自动删除本地镜像。
+- 镜像中的远程工具调用/结果以文本卡片呈现；附件上传、权限弹窗、模型切换等完整 DSH UI
+  仍要到目标电脑本地操作。
+- 原生发送的门禁会让本地这一轮以结束/blocked 收尾，远程回复随后追加；请等待上一条回复。
 - 工具调用的参数/结果有截断；超长输出需要到目标电脑查看完整内容。
 - Android App 为自签名 APK，安装时需要允许「安装未知来源应用」。

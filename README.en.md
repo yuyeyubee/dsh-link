@@ -6,13 +6,15 @@
 
 [中文](README.md) | **English**
 
-![Remote session](docs/images/link-chat.png)
+![Remote Sessions in the DSH workspace](docs/images/link-sidebar-remote.png)
+
+![Remote device badge in the native conversation](docs/images/link-chat.png)
 
 ## What it does
 
 - **Multi-computer link**: install the same DSH plugin on each computer and paste one pairing code. Traffic goes through your own relay over the public internet; no public IP, port forwarding, NAT traversal, or VPN is required on the computers.
-- **A separate side-bar entry**: the DSH sidebar gains a **Link** panel whose main page lists remote computers and their Sessions, visually distinct from local workspaces.
-- **Remote workspace**: read a remote Session's live messages, tool calls/results and turn state; send, stop, create and rename Sessions.
+- **Remote Sessions in the DSH sidebar**: each remote computer becomes a `[Remote] <device>` group under **Workspaces**; its Session rows carry a **Remote** badge and open in the **native DSH conversation**, not a plugin page.
+- **Native remote conversation**: remote messages, tool calls/results and turn state render in the normal chat. Typing into the native composer forwards the prompt to the remote DSH and streams its reply back; the local model is gated off.
 - **The local agent can drive another computer**: `link_sessions` / `link_read` / `link_prompt` / `link_create` / `link_cancel` tools let the AI on computer A operate DSH on computer B.
 - **Android app**: one app connects to multiple computers, browses and drives Sessions, supports dark/light themes and **foldables** (e.g. Huawei Mate X7) with a hinge-aware two-pane layout.
 - **Voice input round-trip**: record on the phone → send to the selected computer → its local SenseVoice recognizer → **text returns to the phone's editable input box**. Audio is never sent to a cloud recognizer.
@@ -39,7 +41,8 @@
 ```
 
 - **Plugin Host half** (`plugin/index.js`): pairing, relay client, remote Session RPC, local DSH adapters, speech recognition, agent tools, same-origin HTTP API.
-- **Plugin Web UI half** (`plugin/client.js`): sidebar entry, remote workspace main panel, settings page.
+- **Plugin Web UI half** (`plugin/client.js`): mirrors remote Sessions into native workspaces/Sessions, adds the Remote badges and header device chip, and keeps the settings page.
+- **Session mirror** (`plugin/index.js`): creates a `[Remote] <device>` workspace, mirrors the 10 most recent Sessions, subscribes to `session.follow` while a mirror is open, appends remote records as native DSH events, and rejects local model steps for mirror Sessions while forwarding the prompt to the remote Host.
 - **Relay** (`relay/`): public TLS WebSocket; device directory and forwarding only, no business data stored.
 - **Android** (`android/`): Kotlin + Jetpack Compose; multi-device Sessions, voice recording round-trip, foldable layout.
 - **Protocol**: `protocol/PROTOCOL.md` is the single contract shared by Host, Web UI, app and relay.
@@ -125,14 +128,23 @@ In the app:
 3. browse Sessions, send prompts, stop a running turn;
 4. tap the microphone, record, stop; the selected computer transcribes and the text returns to the editable input box — review, edit, then send.
 
-### 5. Use the remote workspace
+### 5. Use remote Sessions directly in the DSH workspace
 
-Click **Link** in the sidebar:
+After pairing, the DSH **Workspaces** list gains:
 
-- the **This computer** card explains that local Sessions stay in the normal DSH workspace list; **Back to local conversation** returns;
-- **Remote devices** lists online computers; expand one to see Sessions and open one on the right;
-- the header shows the remote device, Session title, working directory and live status; the composer sends and the stop button cancels a running turn;
-- on narrow windows the list and conversation swap, with a back button.
+```
+📁 [Remote] Home MacBook
+   ├─ Session A        Remote
+   └─ Session B        Remote
+📁 MyGitHub             ← local workspace
+...
+```
+
+- Click the folder icon before `[Remote] …` to expand that computer's Sessions; every remote row has a **Remote** badge, local rows do not.
+- Click a remote Session to open it in the **native DSH conversation**. The header shows `Remote · <device>` beside the title; messages, tool calls/results and turns use the normal DSH UI.
+- Type in the native composer: the prompt is forwarded to that computer's DSH and its reply is appended live. The local model is blocked, so it never answers locally.
+- New remote Sessions appear under the matching `[Remote]` workspace within about 60 seconds; opening a Session pulls the latest records immediately.
+- The **Link** sidebar entry remains as a management overview: devices, Sessions, pairing, Android hints and speech status.
 
 ### 6. Let the agent drive another computer
 
@@ -177,7 +189,10 @@ phone recording (16 kHz mono PCM16) → standard WAV → base64
 ## Known limitations
 
 - No offline queue: a remote call fails immediately when the target computer is offline.
-- The remote workspace renders messages and supports send/stop/create/rename only; attachments, approval prompts and model switching stay on the target computer.
+- Remote Sessions are **mirrors**: only the 10 most recent non-subagent Sessions per computer are synced; deleting a remote Session does not remove its local mirror automatically.
+- Remote tool calls/results appear as text cards in the mirror; attachments, approval prompts and model switching still happen on the target computer.
+- Native composer sends use a mirror gate: the local turn ends without a model request and the remote reply is appended afterwards. Avoid sending the next prompt before the previous reply arrives.
+- A cold/closed mirror is refreshed when opened; the Host pushes live updates only while the mirror conversation is open.
 - Long tool results and text are truncated to keep relay/mobile frames bounded; read the full content on the target computer.
 - The APK is a self-signed debug build; installing requires allowing unknown sources. Configure release signing for distribution.
 - Protocol v1 makes no cross-version compatibility promise; keep plugin, relay and app on the same version.

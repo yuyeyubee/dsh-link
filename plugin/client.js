@@ -169,6 +169,8 @@ window.__ModuleLoader__.load({
         'settings.codeRequired': 'Paste a pairing code first.',
         'settings.peersCount': '{n} online',
         'newSession.failed': 'Could not create the session',
+        'mirror.badge': 'Remote',
+        'mirror.header': 'Remote · {name}',
       },
       zh: {
         panel: '跨设备',
@@ -308,6 +310,8 @@ window.__ModuleLoader__.load({
         'settings.codeRequired': '请先粘贴配对码。',
         'settings.peersCount': '{n} 台在线',
         'newSession.failed': '新建会话失败',
+        'mirror.badge': '远程',
+        'mirror.header': '远程 · {name}',
       },
     }
 
@@ -506,6 +510,9 @@ window.__ModuleLoader__.load({
         .dsh-link-sheet { max-height: calc(100dvh - 24px); }
         .dsh-link-overlay { padding: 12px; }
       }
+
+      .dsh-link-remote-chip { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 999px; border: .5px solid var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); background: var(--dsw-alias-bg-layer-2); font-size: 10px; font-weight: 600; line-height: 1; letter-spacing: .02em; white-space: nowrap; flex: none; }
+      .dsh-link-remote-chip.is-header { height: 22px; padding: 0 8px; font-size: 11px; font-weight: 500; }
     `
 
     /* --------------------------------------------------------------------- */
@@ -598,6 +605,80 @@ window.__ModuleLoader__.load({
         const payload = await postOperation({ op: 'rename', deviceId, sessionId, title })
         return typeof payload.title === 'string' ? payload.title : title
       },
+      async mirrors() {
+        const payload = await postOperation({ op: 'mirrors' })
+        return Array.isArray(payload.items) ? payload.items.filter((item) => item !== null && typeof item === 'object' && typeof item.localSessionId === 'string') : []
+      },
+      async watch(sessionId) {
+        return postOperation({ op: 'watch', sessionId })
+      },
+      async unwatch(sessionId) {
+        return postOperation({ op: 'unwatch', sessionId })
+      },
+    }
+
+    /** Shared mirror index for sidebar and conversation decorations. */
+    const mirrorStore = { items: [], at: 0, loading: null, listeners: new Set() }
+    function notifyMirrors() {
+      for (const listener of mirrorStore.listeners) listener()
+    }
+    function refreshMirrors(force = false) {
+      if (mirrorStore.loading !== null) return mirrorStore.loading
+      if (!force && Date.now() - mirrorStore.at < 8000) return Promise.resolve()
+      mirrorStore.loading = api.mirrors().then((items) => {
+        mirrorStore.items = items
+        mirrorStore.at = Date.now()
+        notifyMirrors()
+        return items
+      }).catch(() => []).finally(() => {
+        mirrorStore.loading = null
+      })
+      return mirrorStore.loading
+    }
+    /** Subscribe one component to the shared mirror index. */
+    function useMirrorItem(sessionId) {
+      const [version, bump] = React.useState(0)
+      React.useEffect(() => {
+        const listener = () => bump((value) => value + 1)
+        mirrorStore.listeners.add(listener)
+        void refreshMirrors()
+        return () => {
+          mirrorStore.listeners.delete(listener)
+        }
+      }, [])
+      void version
+      return mirrorStore.items.find((item) => item.localSessionId === sessionId)
+    }
+
+    /** Sidebar trailing badge for a mirrored remote Session. */
+    function createRemoteBadge(t) {
+      return function RemoteSessionBadge({ sessionId }) {
+        const mirror = useMirrorItem(sessionId)
+        if (mirror === undefined) return null
+        return React.createElement('span', {
+          className: 'dsh-link-remote-chip',
+          title: `${mirror.deviceName ?? ''}`,
+        }, t('mirror.badge'))
+      }
+    }
+
+    /** Conversation header chip; also opens/closes the live remote watch. */
+    function createRemoteHeaderBadge(t) {
+      return function RemoteSessionHeaderBadge({ sessionId }) {
+        const mirror = useMirrorItem(sessionId)
+        React.useEffect(() => {
+          if (mirror === undefined) return undefined
+          void api.watch(sessionId).catch(() => {})
+          return () => {
+            void api.unwatch(sessionId).catch(() => {})
+          }
+        }, [sessionId, mirror === undefined])
+        if (mirror === undefined) return null
+        return React.createElement('span', {
+          className: 'dsh-link-remote-chip is-header',
+          title: mirror.deviceName ?? '',
+        }, t('mirror.header', { name: mirror.deviceName ?? '' }))
+      }
     }
 
     /** Normalize one `SessionStateView`; return null when the value is absent. */
@@ -2387,6 +2468,14 @@ window.__ModuleLoader__.load({
         const t = ctx.locale.bind(NS)
         const Workspace = createWorkspace(ctx, t)
         const SettingsPage = createSettingsPage(ctx, t)
+        const RemoteBadge = createRemoteBadge(t)
+        const RemoteHeaderBadge = createRemoteHeaderBadge(t)
+
+        ctx.effect(() => {
+          void refreshMirrors(true)
+          const timer = setInterval(() => { void refreshMirrors(true) }, 15000)
+          return () => clearInterval(timer)
+        }, 'dsh-link: mirror index')
 
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist',
@@ -2406,6 +2495,18 @@ window.__ModuleLoader__.load({
           order: 40,
           label: () => t('settings.nav'),
         }, SettingsPage))
+
+        ctx.slots.inject('sidebar.session.row.trailing', () => ctx.slots.register({
+          name: 'sidebar.session.row.trailing',
+          id: 'dsh-link-remote',
+          order: 30,
+        }, RemoteBadge))
+
+        ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
+          name: 'conversation.session.header.actions',
+          id: 'dsh-link-remote',
+          order: 30,
+        }, RemoteHeaderBadge))
       },
     }
   },
