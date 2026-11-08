@@ -4,7 +4,7 @@
 `call` / `sub` / `reply` / `event` / `end` 帧。业务方法（`session.*`、`speech.*`…）
 不解析、不持久化。接口契约见 [`../protocol/PROTOCOL.md`](../protocol/PROTOCOL.md) 第 2 节。
 
-- 公网入口：`wss://<DOMAIN>:8443/`（Let's Encrypt 证书，8443 不占用 xray 的 443）
+- 公网入口：`wss://<DOMAIN>:8443/`（Let's Encrypt 证书；443 可留给其它服务）
 - 单 space token（64 位 hex），只存服务器 `/opt/dsh-link/token`（0600）与权威配对码
   `/opt/dsh-link/pairing.txt`（0600）；本机参考副本放 `~/.dsh/dsh-link/pairing-code.txt`
   （0600）。**不进仓库、不进日志、不进聊天**
@@ -30,16 +30,27 @@
 `/etc/letsencrypt/live/<DOMAIN>/`，服务器已装 Node（`/usr/local/bin/node`）
 与 npm。
 
+最简单的方式是在服务器上直接跑仓库里的脚本（脚本会把自身文件复制到 `/opt/dsh-link`）：
+
 ```bash
-# 1. 上传（在仓库根目录；服务器上以 root 运行）
+git clone https://github.com/yuyeyubee/dsh-link.git /opt/dsh-link-src
+cd /opt/dsh-link-src/relay
+sudo ./deploy.sh
+# 自有域名：sudo DSHLINK_DOMAIN=relay.example.com ./deploy.sh
+```
+
+也可以手动上传后运行（等价）：
+
+```bash
 ssh root@<SERVER_IP> 'mkdir -p /opt/dsh-link'
 scp relay/server.mjs relay/package.json relay/deploy.sh relay/dsh-link-relay.service \
     root@<SERVER_IP>:/opt/dsh-link/
-
-# 2. 部署（幂等：可重复执行）
 ssh root@<SERVER_IP> 'chmod +x /opt/dsh-link/deploy.sh && /opt/dsh-link/deploy.sh'
+```
 
-# 3. 同步配对码参考副本到本机（0600；内容不要贴到聊天/仓库）
+同步配对码参考副本到本机（0600；内容不要贴到聊天/仓库）：
+
+```bash
 mkdir -p ~/.dsh/dsh-link && chmod 700 ~/.dsh/dsh-link
 scp root@<SERVER_IP>:/opt/dsh-link/pairing.txt ~/.dsh/dsh-link/pairing-code.txt
 chmod 600 ~/.dsh/dsh-link/pairing-code.txt
@@ -80,17 +91,16 @@ journalctl -u dsh-link-relay -n 100 --no-pager
 
 - **重启**：`systemctl restart dsh-link-relay`
 - **升级代码**：重新 scp `server.mjs` 后执行 `deploy.sh`（会重启）
-- **改端口**：编辑 `/etc/systemd/system/dsh-link-relay.service`（或 drop-in）加
-  `Environment=DSHLINK_PORT=9443`，`systemctl daemon-reload && systemctl restart dsh-link-relay`，
-  同时更新 `PUBLIC_URL` 重新生成配对码、放行云防火墙/安全组端口。**端口是配对码的一部分**，
-  换端口必须重新分发配对码。
+- **改端口/域名**：改 `/etc/default/dsh-link-relay` 里的 `DSHLINK_PORT` / `DSHLINK_DOMAIN`
+  （或重新执行 `DSHLINK_PORT=9443 ./deploy.sh`），然后 `systemctl restart dsh-link-relay`；
+  **端口和域名是配对码的一部分**，换端口/换域名必须重新生成并分发配对码。
 - **日志隐私**：只记录连接时间、远端 IP、设备 id/名称、角色、帧类型、方法名、耗时、
   `ok`/错误码；`params` / `result` 正文与 token 永不写入日志。
 - **证书**：证书续期由 certbot timer 自动完成；deploy hook
   `/etc/letsencrypt/renewal-hooks/deploy/restart-dsh-link-relay.sh` 在续期成功后
   `systemctl restart dsh-link-relay`，relay 启动时重新读取证书文件。
   手动验证：`certbot renew --dry-run --cert-name <DOMAIN>`。
-- **443 属于 xray**：不要改 `dsh-link-relay` 监听 443；relay 固定 8443。
+- relay 默认监听 8443；443 留给你的其它服务（例如反向代理），不要冲突。
 
 ## 轮换 token（token 泄露时）
 
@@ -117,8 +127,10 @@ Android 需重新配对。
   `{t:"error",code:"bad-request"}`。
 - `sub` 必须先 `{ok:true,result:{stream:true}}`，之后才转发 `event`；`unsub` 会向被调方
   发 `{t:"unsub",rid}` 并向调用方回 `end`。
-- 30 秒内未被 reply 的 call/sub 由 relay 清理：向调用方回 `{ok:false,error:{code:"timeout"}}`
-  （sub 同时给被调方补发 `unsub`），之后该 `rid` 的迟到 reply 一律丢弃。
+- 普通 call/sub 30 秒内未被 reply 由 relay 清理：向调用方回
+  `{ok:false,error:{code:"timeout"}}`（sub 同时给被调方补发 `unsub`），之后该 `rid` 的
+  迟到 reply 一律丢弃。`speech.transcribe` 是例外：relay 给 180 秒，给目标电脑首次加载
+  本地语音模型留时间；调用方自己的超时也应放宽到 180 秒。
 - 被调方在 call 中掉线 → 调用方收到 `offline` reply；在 sub 中掉线 → 调用方收到 `end`。
   调用方断开 → 所有被调方收到对应 `unsub`。
 - 帧上限 8 MiB（`maxPayload`），超过时 WebSocket 以 1009 关闭；不开启
