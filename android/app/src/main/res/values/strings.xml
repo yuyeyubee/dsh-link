@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DSH Link</string>
+    <string name="app_tagline">手机遥控电脑上的 DeepSeek Harness</string>
+
+    <!-- 配对 -->
+    <string name="setup_title">连接你的电脑</string>
+    <string name="setup_subtitle">在电脑端 DSH Link 插件的设置页复制配对码，粘贴到这里即可连接。</string>
+    <string name="pairing_code_label">配对码</string>
+    <string name="pairing_code_placeholder">dshlink1.xxxxx</string>
+    <string name="pairing_connect">连接</string>
+    <string name="pairing_manual_show">手动填写地址与 token</string>
+    <string name="pairing_manual_hide">收起手动填写</string>
+    <string name="relay_url_label">Relay 地址</string>
+    <string name="relay_url_placeholder">wss://example.com:8443</string>
+    <string name="token_label">Token（64 位十六进制）</string>
+    <string name="device_name_label">本机名称（显示在电脑端）</string>
+    <string name="device_name_placeholder">我的手机</string>
+    <string name="setup_security_note">Token 只保存在本机应用私有目录，仅用于连接中继服务器。</string>
+    <string name="setup_invalid">配对码无效</string>
+
+    <!-- 设备 / 会话列表 -->
+    <string name="devices_title">电脑</string>
+    <string name="devices_empty">暂无在线电脑</string>
+    <string name="devices_empty_hint">请确认电脑端 DSH Link 插件已启动，并连上同一个中继服务器。</string>
+    <string name="devices_online">在线</string>
+    <string name="devices_offline">离线</string>
+    <string name="sessions_title">会话</string>
+    <string name="sessions_empty">这台电脑还没有会话</string>
+    <string name="sessions_new">新建会话</string>
+    <string name="sessions_refresh">刷新</string>
+    <string name="sessions_loading">加载中…</string>
+    <string name="running">运行中</string>
+    <string name="unnamed_session">未命名会话</string>
+
+    <!-- 对话 -->
+    <string name="chat_empty_title">还没有打开会话</string>
+    <string name="chat_empty_hint">从左侧选择一台电脑和它的会话，或新建一个会话。</string>
+    <string name="chat_input_hint">输入消息…</string>
+    <string name="chat_send">发送</string>
+    <string name="chat_stop">停止</string>
+    <string name="chat_mode_queue">排队</string>
+    <string name="chat_mode_steer">立即插入</string>
+    <string name="chat_mode_label">发送方式</string>
+    <string name="chat_reasoning">思考过程</string>
+    <string name="chat_tool_call">工具调用</string>
+    <string name="chat_tool_result">工具结果</string>
+    <string name="chat_turn_start">第 %1$d 轮开始</string>
+    <string name="chat_turn_end">第 %1$d 轮结束</string>
+    <string name="chat_error">错误</string>
+    <string name="chat_queue_count">队列 %1$d</string>
+    <string name="chat_follow_lost">实时连接已断开，重新连接后自动补齐</string>
+    <string name="chat_no_device">请先选择电脑</string>
+    <string name="chat_back">返回</string>
+    <string name="chat_rename">重命名</string>
+    <string name="chat_more">更多</string>
+
+    <!-- 语音 -->
+    <string name="record_start">语音输入</string>
+    <string name="record_recording">录音中</string>
+    <string name="record_transcribing">识别中…</string>
+    <string name="record_cancel">取消</string>
+    <string name="record_finish">完成</string>
+    <string name="record_retry">重试</string>
+    <string name="record_failed">识别失败</string>
+    <string name="record_too_short">录音太短，请重试</string>
+    <string name="record_permission_needed">需要麦克风权限才能录音</string>
+    <string name="record_unavailable">这台电脑的语音识别不可用</string>
+    <string name="record_remaining">剩余 %1$d 秒</string>
+    <string name="record_done">识别完成，可编辑后发送</string>
+
+    <!-- 设置 -->
+    <string name="settings_title">设置</string>
+    <string name="settings_relay">中继服务器</string>
+    <string name="settings_device_id">本机设备 ID</string>
+    <string name="settings_device_name">本机名称</string>
+    <string name="settings_connection">连接状态</string>
+    <string name="settings_reconnect">重新连接</string>
+    <string name="settings_disconnect">断开连接</string>
+    <string name="settings_forget">解除配对</string>
+    <string name="settings_forget_confirm">解除配对会删除本机保存的 token，确定吗？</string>
+    <string name="settings_close">关闭</string>
+    <string name="settings_about">DSH Link Android v%1$s · 个人私有应用</string>
+    <string name="settings_save">保存</string>
+
+    <!-- 连接状态 -->
+    <string name="state_unconfigured">未配对</string>
+    <string name="state_connecting">连接中…</string>
+    <string name="state_connected">已连接</string>
+    <string name="state_offline">离线</string>
+
+    <!-- 对话框 -->
+    <string name="new_session_title">新建会话</string>
+    <string name="new_session_workspace">工作区</string>
+    <string name="new_session_workspace_default">默认工作区（由电脑决定）</string>
+    <string name="new_session_cwd">工作目录（可选）</string>
+    <string name="new_session_cwd_placeholder">/Users/me/project</string>
+    <string name="new_session_create">创建</string>
+    <string name="rename_title">重命名会话</string>
+    <string name="rename_hint">会话标题</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_confirm">确定</string>
+    <string name="action_close">关闭</string>
+    <string name="action_retry">重试</string>
+    <string name="action_ok">知道了</string>
+
+    <!-- 错误 -->
+    <string name="error_generic">操作失败</string>
+    <string name="error_offline_device">目标电脑不在线</string>
+    <string name="error_unauthorized">token 无效，请重新配对</string>
+    <string name="error_timeout">操作超时</string>
+    <string name="error_busy">电脑正忙</string>
+    <string name="error_unavailable">电脑端 DSH 未就绪</string>
+    <string name="error_not_found">会话不存在</string>
+    <string name="error_bad_request">请求参数无效</string>
+    <string name="error_connection_failed">无法连接中继服务器</string>
+</resources>

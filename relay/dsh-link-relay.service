@@ -1,0 +1,32 @@
+[Unit]
+Description=DSH Link relay (public TLS WebSocket, protocol v1)
+Documentation=https://github.com/yuyeyubee/dsh-link
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/dsh-link
+Environment=NODE_ENV=production
+# Deployment-specific domain/cert/port values written by deploy.sh.
+EnvironmentFile=-/etc/default/dsh-link-relay
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/env node /opt/dsh-link/server.mjs
+Restart=on-failure
+RestartSec=2s
+
+# Logs go to journald (journalctl -u dsh-link-relay). The service must be able
+# to read the Let's Encrypt live/ symlinks, which are root-owned, hence root.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+SyslogIdentifier=dsh-link-relay
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

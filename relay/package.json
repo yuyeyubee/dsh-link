@@ -1,0 +1,19 @@
+{
+  "name": "dsh-link-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Public TLS WebSocket relay for DSH Link (protocol v1): device directory and call/subscription forwarding inside one space token.",
+  "license": "MIT",
+  "type": "module",
+  "main": "server.mjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node test-client.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
