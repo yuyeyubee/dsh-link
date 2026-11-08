@@ -179,6 +179,9 @@ function makeContext(services) {
     effect(callback) {
       return callback()
     },
+    on(_event, _listener) {
+      return () => {}
+    },
     inject(_names, callback) {
       callback(ctx)
     },

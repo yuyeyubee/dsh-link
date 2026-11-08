@@ -14,7 +14,7 @@
  * credential store; the rest of the pairing lives in
  * `$DSH_HOME/dsh-link/config.json` (mode 0600).
  */
-import { randomBytes, randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import {
   chmodSync,
   existsSync,
@@ -25,7 +25,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { homedir, hostname } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 
 /** Loader row identity of this plugin. */
 export const name = 'dsh-link'
@@ -58,6 +58,10 @@ const MAX_TEXT = 8 * 1024
 const MAX_ARGS = 4 * 1024
 const MAX_TOOL_TEXT = 2 * 1024
 const MAX_REASONING = 4 * 1024
+/** How many recent remote Sessions are mirrored into one device workspace. */
+const MAX_MIRROR_SESSIONS = 10
+/** How often peers are re-listed while connected, in milliseconds. */
+const MIRROR_SYNC_INTERVAL_MS = 60_000
 /** Reconnect backoff bounds, in milliseconds. */
 const RECONNECT_MIN_MS = 1_000
 const RECONNECT_MAX_MS = 30_000
@@ -223,6 +227,17 @@ function reasoningOfMessage(message) {
     if (block.type === 'reasoning' && typeof block.text === 'string' && block.text.length > 0) parts.push(block.text)
   }
   return parts.join('\n').trim()
+}
+
+/** Join the text blocks of a list of user messages for mirror forwarding. */
+function extractUserMessageText(messages) {
+  if (!Array.isArray(messages)) return ''
+  const parts = []
+  for (const message of messages) {
+    const text = textOfMessage(message)
+    if (text.length > 0) parts.push(text)
+  }
+  return parts.join('\n\n').trim()
 }
 
 /** Map one DSH wire event to a protocol ChatRecord, or undefined when ignored. */
@@ -681,6 +696,11 @@ class LinkHost {
     this.peers = []
     this.localStreams = new Map()
     this.speechWarmed = false
+    this.mirrors = { version: 1, devices: {} }
+    this.mirrorWatches = new Map()
+    this.mirrorTimer = undefined
+    this.mirrorSyncTimer = undefined
+    this.mirrorSyncing = false
   }
 
   /** Resolve a host service without failing when the composition lacks it. */
@@ -776,9 +796,11 @@ class LinkHost {
   async start() {
     this.config = this.readConfig()
     this.token = await this.readToken()
+    this.mirrors = this.readMirrorStore()
     await this.importPairingFile()
     if (this.isConfigured()) this.connectRelay()
     else this.setState('unconfigured')
+    this.startMirrorTimer()
   }
 
   /** Import `~/.dsh/dsh-link/pairing.txt` once, then delete it. */
@@ -831,9 +853,11 @@ class LinkHost {
       logger: { log: (level, message) => this.log(level, message) },
       onPeers: (peers) => {
         this.peers = peers
+        if (peers.length > 0) this.scheduleMirrorSync()
       },
       onState: (state) => {
         this.setState(state)
+        if (state === 'connected') this.scheduleMirrorSync()
       },
       onCall: (rid, from, method, params) => {
         void this.handleIncomingCall(rid, from, method, params)
@@ -862,6 +886,11 @@ class LinkHost {
 
   /** Stop everything; the plugin effect's cleanup uses this. */
   stop() {
+    clearInterval(this.mirrorTimer)
+    clearTimeout(this.mirrorSyncTimer)
+    this.mirrorTimer = undefined
+    this.mirrorSyncTimer = undefined
+    for (const localId of [...this.mirrorWatches.keys()]) this.unwatchMirror(localId)
     this.closeRelay()
   }
 
@@ -933,8 +962,26 @@ class LinkHost {
         since: peer.since ?? null,
       })),
       speech: this.speechStatus(),
+      mirrors: this.mirrorList(),
       version: VERSION,
     }
+  }
+
+  /** Flat mirror mapping for the Client decorations and settings diagnostics. */
+  mirrorList() {
+    const items = []
+    for (const [deviceId, device] of Object.entries(this.mirrors.devices ?? {})) {
+      for (const [remoteSessionId, entry] of Object.entries(device.sessions ?? {})) {
+        items.push({
+          localSessionId: entry.localId,
+          deviceId,
+          deviceName: device.name,
+          remoteSessionId,
+          title: entry.title ?? '',
+        })
+      }
+    }
+    return items
   }
 
   /** Save a pairing code from the settings page. */
@@ -1019,7 +1066,7 @@ class LinkHost {
       version: VERSION,
       dshVersion: '0.2.2-rc.1',
       time: Date.now(),
-      workspaceDefault: this.workspaces()[0]?.path ?? null,
+      workspaceDefault: this.remoteWorkspaceItems()[0]?.path ?? null,
       capabilities: ['sessions', 'speech'],
       speech: this.speechStatus(),
       workspaceCount: workspaces.length,
@@ -1324,6 +1371,527 @@ class LinkHost {
     }
   }
 
+  /* ----------------------------- native mirrors --------------------------- */
+
+  /** Absolute path of the mirror mapping document. */
+  mirrorStoreFile() {
+    return join(dataDir(), 'mirrors.json')
+  }
+
+  /** Directory that owns one remote device's mirrored Sessions. */
+  mirrorDirFor(deviceId) {
+    return join(dataDir(), 'mirrors', String(deviceId).replace(/[^A-Za-z0-9_.-]/gu, '_'))
+  }
+
+  /** Whether a path is inside this plugin's mirror workspaces. */
+  isMirrorPath(value) {
+    const root = join(dataDir(), 'mirrors')
+    return typeof value === 'string' && (value === root || value.startsWith(`${root}${sep}`))
+  }
+
+  /** Workspace rows that another Host may see (mirror groups stay local). */
+  remoteWorkspaceItems() {
+    return this.workspaceItems().filter((item) => !this.isMirrorPath(item.path))
+  }
+
+  /** Session rows that another Host may see (mirror Sessions stay local). */
+  async remoteSessionList() {
+    return (await this.sessionList()).filter((item) => !this.isMirrorPath(item.cwd))
+  }
+
+  /** Stable local Session id for one remote Session. */
+  localMirrorId(deviceId, remoteSessionId) {
+    return `session-dshlink-${createHash('sha1').update(`${deviceId}:${remoteSessionId}`).digest('hex').slice(0, 16)}`
+  }
+
+  /** Read the durable mirror mapping; malformed files become empty. */
+  readMirrorStore() {
+    try {
+      const parsed = JSON.parse(readFileSync(this.mirrorStoreFile(), 'utf8'))
+      if (parsed === null || typeof parsed !== 'object' || typeof parsed.devices !== 'object' || parsed.devices === null) {
+        return { version: 1, devices: {} }
+      }
+      return { version: 1, devices: parsed.devices }
+    } catch {
+      return { version: 1, devices: {} }
+    }
+  }
+
+  /** Atomically persist the mirror mapping with mode 0600. */
+  saveMirrorStore() {
+    try {
+      mkdirSync(dataDir(), { recursive: true, mode: 0o700 })
+      const target = this.mirrorStoreFile()
+      const temporary = `${target}.${process.pid}.tmp`
+      writeFileSync(temporary, JSON.stringify(this.mirrors, null, 2), { mode: 0o600 })
+      chmodSync(temporary, 0o600)
+      renameSync(temporary, target)
+    } catch (error) {
+      this.log('warn', `dsh-link: mirror store write failed: ${errorMessage(error)}`)
+    }
+  }
+
+  /** Find the device and entry that own one local mirror Session. */
+  mirrorForLocal(localSessionId) {
+    for (const [deviceId, device] of Object.entries(this.mirrors.devices ?? {})) {
+      for (const [remoteSessionId, entry] of Object.entries(device.sessions ?? {})) {
+        if (entry?.localId === localSessionId) return { deviceId, device, remoteSessionId, entry }
+      }
+    }
+    return undefined
+  }
+
+  /** Find one remote Session's mirror entry. */
+  mirrorForRemote(deviceId, remoteSessionId) {
+    const device = this.mirrors.devices?.[deviceId]
+    const entry = device?.sessions?.[remoteSessionId]
+    if (device === undefined || entry === undefined) return undefined
+    return { deviceId, device, remoteSessionId, entry }
+  }
+
+  /** Defer one peer mirror sync shortly; coalesces presence bursts. */
+  scheduleMirrorSync() {
+    if (this.mirrorSyncTimer !== undefined) return
+    this.mirrorSyncTimer = setTimeout(() => {
+      this.mirrorSyncTimer = undefined
+      void this.syncMirrors()
+    }, 2_000)
+    this.mirrorSyncTimer.unref?.()
+  }
+
+  /** Re-list peers periodically while the relay is connected. */
+  startMirrorTimer() {
+    clearInterval(this.mirrorTimer)
+    this.mirrorTimer = setInterval(() => {
+      if (this.relay?.state === 'connected') this.scheduleMirrorSync()
+    }, MIRROR_SYNC_INTERVAL_MS)
+    this.mirrorTimer.unref?.()
+  }
+
+  /** Mirror the recent Sessions of every online peer. */
+  async syncMirrors() {
+    if (this.mirrorSyncing || this.relay === undefined || this.relay.state !== 'connected') return
+    this.mirrorSyncing = true
+    try {
+      for (const peer of [...this.peers]) {
+        try {
+          await this.syncPeerMirrors(peer)
+        } catch (error) {
+          this.log('warn', `dsh-link: mirror sync ${peer.name ?? peer.id}: ${errorMessage(error)}`)
+        }
+      }
+      this.saveMirrorStore()
+    } finally {
+      this.mirrorSyncing = false
+    }
+  }
+
+  /** Ensure the workspace that groups one device's mirrors exists. */
+  async ensureMirrorWorkspace(peer, name) {
+    const directory = this.mirrorDirFor(peer.id)
+    mkdirSync(directory, { recursive: true, mode: 0o700 })
+    const registry = this.service('workspaceRegistry')
+    if (registry === undefined) return undefined
+    let workspace
+    try {
+      workspace = await registry.resolveByPath(directory)
+    } catch {
+      workspace = undefined
+    }
+    const title = `[远程] ${name}`
+    if (workspace === undefined) {
+      workspace = await registry.create(directory, title)
+    } else if (workspace.title !== title) {
+      try {
+        await workspace.setTitle(title)
+      } catch {
+        // a title refresh is cosmetic
+      }
+    }
+    return workspace
+  }
+
+  /** Mirror one peer's recent ordinary Sessions. */
+  async syncPeerMirrors(peer) {
+    const info = await this.remoteCall(peer.id, 'device.info', {}, 15_000).catch(() => undefined)
+    const name = typeof info?.name === 'string' && info.name.length > 0 ? info.name : (peer.name ?? peer.id)
+    const list = await this.remoteCall(peer.id, 'session.list', {}, 20_000)
+    const items = (Array.isArray(list?.items) ? list.items : [])
+      .filter((item) => item !== null && typeof item === 'object' && typeof item.sessionId === 'string' && item.parentSessionId == null)
+      .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
+    const selected = items.filter((item, index) => index < MAX_MIRROR_SESSIONS || item.running === true)
+    if (selected.length === 0) return
+    const workspace = await this.ensureMirrorWorkspace(peer, name)
+    if (workspace === undefined) return
+    const device = this.mirrors.devices[peer.id] ?? { name, workspaceId: workspace.id, workspacePath: this.mirrorDirFor(peer.id), sessions: {} }
+    device.name = name
+    device.workspaceId = workspace.id
+    device.workspacePath = this.mirrorDirFor(peer.id)
+    this.mirrors.devices[peer.id] = device
+    let localSummaries
+    try {
+      localSummaries = await this.sessionList()
+    } catch {
+      localSummaries = []
+    }
+    const localIds = new Set(localSummaries.map((item) => item.sessionId))
+    for (const item of selected) {
+      const remoteSessionId = item.sessionId
+      let entry = device.sessions[remoteSessionId]
+      if (entry === undefined) {
+        entry = {
+          localId: this.localMirrorId(peer.id, remoteSessionId),
+          title: typeof item.title === 'string' ? item.title : '',
+          remoteSeq: -1,
+          updatedAt: item.updatedAt ?? 0,
+          createdAt: new Date().toISOString(),
+        }
+        device.sessions[remoteSessionId] = entry
+      }
+      entry.updatedAt = item.updatedAt ?? entry.updatedAt ?? 0
+      const local = this.service('sessions')?.get(entry.localId)
+      if (local === undefined && !localIds.has(entry.localId)) {
+        try {
+          const created = await this.requireSessions().create({ workspaceId: workspace.id, sessionId: entry.localId })
+          entry.remoteSeq = -1
+          await workspace.attachSession(created.sessionId).catch(() => {})
+        } catch (error) {
+          this.log('warn', `dsh-link: mirror create ${remoteSessionId}: ${errorMessage(error)}`)
+          continue
+        }
+      } else {
+        await workspace.attachSession(entry.localId).catch(() => {})
+      }
+      const live = this.service('sessions')?.get(entry.localId)
+      if (live !== undefined) {
+        await this.renameMirror(live, entry, typeof item.title === 'string' ? item.title : '')
+        await this.syncMirrorHistory(peer, entry, remoteSessionId)
+      }
+    }
+  }
+
+  /** Rename one mirror when the remote title changed. */
+  async renameMirror(session, entry, title) {
+    const next = typeof title === 'string' ? title.trim() : ''
+    if (next.length === 0) return
+    const service = this.service('sessionTitle')
+    if (service === undefined) return
+    let current = entry.title
+    try {
+      current = service.get(session)?.title ?? current
+    } catch {
+      // fall back to the stored title
+    }
+    if (next === current) {
+      entry.title = next
+      return
+    }
+    try {
+      await service.rename(session, next)
+      entry.title = next
+    } catch {
+      // a cold or disposed session cannot be renamed now
+    }
+  }
+
+  /** Append newly committed remote history to one live mirror Session. */
+  async syncMirrorHistory(peer, entry, remoteSessionId) {
+    const session = this.service('sessions')?.get(entry.localId)
+    if (session === undefined) return
+    const history = await this.remoteCall(peer.id, 'session.history', {
+      sessionId: remoteSessionId,
+      maxMessages: 60,
+    }, 30_000)
+    const records = (Array.isArray(history?.records) ? history.records : [])
+      .filter((record) => record !== null && typeof record === 'object' && Number.isFinite(record.seq) && record.seq > (entry.remoteSeq ?? -1))
+    if (records.length > 0) {
+      const appended = this.appendMirrorRecords(entry, records)
+      if (appended.length > 0) {
+        entry.remoteSeq = appended[appended.length - 1].seq
+        this.saveMirrorStore()
+      }
+    }
+    if (typeof history?.title === 'string' && history.title.length > 0) {
+      await this.renameMirror(session, entry, history.title)
+    }
+  }
+
+  /** Append compact protocol records to one local mirror Session. */
+  appendMirrorRecords(entry, records) {
+    const session = this.service('sessions')?.get(entry.localId)
+    if (session === undefined) return []
+    const events = session.snapshotEvents()
+    let turnOpen = false
+    let stepOpen = false
+    let turn = 0
+    let step = 0
+    for (const event of events) {
+      if (event.type === 'turn/start') {
+        turnOpen = true
+        turn = Number.isFinite(event.data?.turn) ? event.data.turn : turn + 1
+        step = 0
+      } else if (event.type === 'turn/end') {
+        turnOpen = false
+      } else if (event.type === 'assistant/message' && Number.isFinite(event.data?.step)) {
+        step = Math.max(step, event.data.step)
+      }
+    }
+    const pending = Array.isArray(entry.pendingUserTexts) ? entry.pendingUserTexts : []
+    const appended = []
+    for (const record of records) {
+      try {
+        if (record.kind === 'user') {
+          const text = typeof record.text === 'string' ? record.text : ''
+          const pendingIndex = pending.findIndex((item) => item === text)
+          if (pendingIndex >= 0) {
+            pending.splice(pendingIndex, 1)
+            appended.push(record)
+            continue
+          }
+          if (!turnOpen) {
+            turn += 1
+            step = 0
+            session.append('turn/start', { turn })
+            turnOpen = true
+          }
+          session.append('user/message', {
+            id: randomUUID(),
+            role: 'user',
+            content: [{ type: 'text', text }],
+            source: { kind: 'user' },
+          }, { surfaceOp: 'append' })
+          appended.push(record)
+          continue
+        }
+        if (record.kind === 'assistant') {
+          if (!turnOpen) {
+            turn += 1
+            step = 0
+            session.append('turn/start', { turn })
+            turnOpen = true
+          }
+          if (stepOpen) {
+            session.append('step/end', { turn, step })
+            stepOpen = false
+          }
+          step += 1
+          session.append('step/start', { turn, step })
+          stepOpen = true
+          const content = []
+          if (typeof record.reasoning === 'string' && record.reasoning.length > 0) content.push({ type: 'reasoning', text: record.reasoning })
+          if (record.text.length > 0) content.push({ type: 'text', text: record.text })
+          if (content.length === 0) content.push({ type: 'text', text: '（远程助手只返回了工具调用）' })
+          session.append('assistant/message', {
+            turn,
+            step,
+            message: {
+              id: randomUUID(),
+              role: 'assistant',
+              content,
+              source: { kind: 'model', provider: 'dsh-link', model: 'remote' },
+            },
+            stream: [],
+          }, { surfaceOp: 'append' })
+          session.append('step/end', { turn, step })
+          stepOpen = false
+          appended.push(record)
+          continue
+        }
+        if (record.kind === 'tool-call' || record.kind === 'tool-result' || record.kind === 'error') {
+          if (!turnOpen) {
+            turn += 1
+            step = 0
+            session.append('turn/start', { turn })
+            turnOpen = true
+          }
+          if (stepOpen) {
+            session.append('step/end', { turn, step })
+            stepOpen = false
+          }
+          step += 1
+          session.append('step/start', { turn, step })
+          stepOpen = true
+          let text
+          if (record.kind === 'tool-call') {
+            text = `🔧 远程工具调用 \`${record.name || 'tool'}\`\n\`\`\`json\n${record.args || ''}\n\`\`\``
+          } else if (record.kind === 'tool-result') {
+            text = `${record.isError === true ? '❌ 远程工具失败' : '✅ 远程工具结果'}${record.name ? ` · ${record.name}` : ''}\n\`\`\`\n${record.text || ''}\n\`\`\``
+          } else {
+            text = `⚠️ 远程错误：${record.message || ''}`
+          }
+          session.append('assistant/message', {
+            turn,
+            step,
+            message: {
+              id: randomUUID(),
+              role: 'assistant',
+              content: [{ type: 'text', text }],
+              source: { kind: 'model', provider: 'dsh-link', model: 'remote' },
+            },
+            stream: [],
+          }, { surfaceOp: 'append' })
+          session.append('step/end', { turn, step })
+          stepOpen = false
+          appended.push(record)
+          continue
+        }
+        if (record.kind === 'turn-start') {
+          if (stepOpen) {
+            session.append('step/end', { turn, step })
+            stepOpen = false
+          }
+          if (turnOpen) {
+            session.append('turn/end', { turn, reason: { kind: 'completed' } })
+          }
+          turn = Number.isFinite(record.turn) ? record.turn : turn + 1
+          step = 0
+          session.append('turn/start', { turn })
+          turnOpen = true
+          appended.push(record)
+          continue
+        }
+        if (record.kind === 'turn-end') {
+          if (stepOpen) {
+            session.append('step/end', { turn, step })
+            stepOpen = false
+          }
+          if (!turnOpen) {
+            turn += 1
+            session.append('turn/start', { turn })
+            turnOpen = true
+          }
+          const reason = record.reason === 'completed' ? 'completed' : record.reason === 'aborted' ? 'aborted' : record.reason === 'error' ? 'error' : 'completed'
+          session.append('turn/end', { turn, reason: { kind: reason } })
+          turnOpen = false
+          appended.push(record)
+          continue
+        }
+      } catch (error) {
+        this.log('warn', `dsh-link: mirror append ${entry.localId}: ${errorMessage(error)}`)
+        break
+      }
+    }
+    entry.pendingUserTexts = pending
+    return appended
+  }
+
+  /** Subscribe to one remote Session while its native mirror is open. */
+  watchMirror(localSessionId) {
+    const found = this.mirrorForLocal(localSessionId)
+    if (found === undefined) return { watching: false }
+    this.unwatchMirror(localSessionId)
+    const { deviceId, device, remoteSessionId, entry } = found
+    void this.syncMirrorHistory({ id: deviceId, name: device.name }, entry, remoteSessionId).catch(() => {})
+    let subscription
+    try {
+      subscription = this.remoteSubscribe(deviceId, 'session.follow', { sessionId: remoteSessionId }, {
+        onEvent: (data) => {
+          if (data === null || typeof data !== 'object') return
+          if (data.t === 'snapshot') {
+            const incoming = (Array.isArray(data.records) ? data.records : [])
+              .filter((record) => record !== null && typeof record === 'object' && Number.isFinite(record.seq) && record.seq > (entry.remoteSeq ?? -1))
+            const appended = this.appendMirrorRecords(entry, incoming)
+            if (appended.length > 0) {
+              entry.remoteSeq = appended[appended.length - 1].seq
+              this.saveMirrorStore()
+            }
+          } else if (data.t === 'record' && data.record !== null && typeof data.record === 'object') {
+            if (Number.isFinite(data.record.seq) && data.record.seq > (entry.remoteSeq ?? -1)) {
+              const appended = this.appendMirrorRecords(entry, [data.record])
+              if (appended.length > 0) {
+                entry.remoteSeq = appended[appended.length - 1].seq
+                this.saveMirrorStore()
+              }
+            }
+          } else if (data.t === 'title' && typeof data.title === 'string' && data.title.length > 0) {
+            const session = this.service('sessions')?.get(localSessionId)
+            if (session !== undefined) void this.renameMirror(session, entry, data.title)
+          } else if (data.t === 'error') {
+            this.log('warn', `dsh-link: mirror stream error: ${data.message ?? data.code ?? 'unknown'}`)
+          }
+        },
+        onError: (error) => {
+          this.log('warn', `dsh-link: mirror watch ${localSessionId}: ${errorMessage(error)}`)
+        },
+        onEnd: () => {},
+      })
+    } catch (error) {
+      this.log('warn', `dsh-link: mirror watch ${localSessionId}: ${errorMessage(error)}`)
+      return { watching: false }
+    }
+    this.mirrorWatches.set(localSessionId, subscription)
+    return { watching: true, deviceId, deviceName: device.name, remoteSessionId }
+  }
+
+  /** Stop watching one mirror. */
+  unwatchMirror(localSessionId) {
+    const subscription = this.mirrorWatches.get(localSessionId)
+    if (subscription === undefined) return
+    this.mirrorWatches.delete(localSessionId)
+    try {
+      subscription.cancel()
+    } catch {
+      // already closed
+    }
+  }
+
+  /** Forward a native mirror prompt to the remote Host. */
+  async forwardMirrorPrompt(localSessionId, text) {
+    const found = this.mirrorForLocal(localSessionId)
+    if (found === undefined) throw new LinkError('not-found', '这不是远程镜像会话')
+    const clean = typeof text === 'string' ? text.trim() : ''
+    if (clean.length === 0) return
+    found.entry.pendingUserTexts = Array.isArray(found.entry.pendingUserTexts) ? found.entry.pendingUserTexts : []
+    found.entry.pendingUserTexts.push(clean)
+    this.watchMirror(localSessionId)
+    await this.remoteCall(found.deviceId, 'session.prompt', { sessionId: found.remoteSessionId, text: clean }, 30_000)
+  }
+
+  /** Append one durable local user message for a forwarded mirror prompt. */
+  appendMirrorUserText(entry, text) {
+    const session = this.service('sessions')?.get(entry.localId)
+    if (session === undefined || typeof text !== 'string' || text.trim().length === 0) return
+    const events = session.snapshotEvents()
+    let turnOpen = false
+    let turn = 0
+    for (const event of events) {
+      if (event.type === 'turn/start') {
+        turnOpen = true
+        turn = Number.isFinite(event.data?.turn) ? event.data.turn : turn + 1
+      } else if (event.type === 'turn/end') {
+        turnOpen = false
+      }
+    }
+    if (!turnOpen) {
+      turn += 1
+      session.append('turn/start', { turn })
+    }
+    session.append('user/message', {
+      id: randomUUID(),
+      role: 'user',
+      content: [{ type: 'text', text }],
+      source: { kind: 'user' },
+    }, { surfaceOp: 'append' })
+  }
+
+  /** Reject a local model step for a mirror and forward its prompt instead. */
+  handleMirrorPreStep(payload) {
+    const localSessionId = payload?.agent?.id
+    const found = this.mirrorForLocal(localSessionId)
+    if (found === undefined) return undefined
+    const text = extractUserMessageText(payload?.messages)
+    if (text.length > 0) {
+      if (found.entry.lastForwardedTurn !== payload.turn) {
+        found.entry.lastForwardedTurn = payload.turn
+        this.appendMirrorUserText(found.entry, text)
+        void this.forwardMirrorPrompt(localSessionId, text).catch((error) => {
+          this.log('warn', `dsh-link: mirror forward failed: ${errorMessage(error)}`)
+        })
+      }
+    }
+    return { kind: 'reject' }
+  }
+
   /* ------------------------------ RPC routing ----------------------------- */
 
   /** Execute one local method for a remote caller. */
@@ -1334,9 +1902,9 @@ class LinkHost {
       case 'device.info':
         return await this.deviceInfo()
       case 'workspace.list':
-        return { items: this.workspaceItems() }
+        return { items: this.remoteWorkspaceItems() }
       case 'session.list':
-        return { items: await this.sessionList() }
+        return { items: await this.remoteSessionList() }
       case 'session.create':
         return await this.sessionCreate(params)
       case 'session.prompt':
@@ -1482,6 +2050,102 @@ class LinkHost {
           clearTimeout(timer)
         }
         return { frames }
+      }
+      case 'mirror-probe': {
+        const peer = this.resolvePeer(extra?.device)
+        const remoteSessionId = this.requireSessionId(extra?.sessionId)
+        const mirrorDir = join(dataDir(), 'mirrors', peer.id)
+        mkdirSync(mirrorDir, { recursive: true, mode: 0o700 })
+        const registry = this.service('workspaceRegistry')
+        if (registry === undefined) throw new LinkError('unavailable', '本机缺少 workspaceRegistry')
+        const workspace = await registry.create(mirrorDir, `📡 远程 · ${peer.name}`)
+        const mirrorId = `session-dshlink-${createHash('sha1').update(`${peer.id}:${remoteSessionId}`).digest('hex').slice(0, 16)}`
+        const controller = this.requireSessions()
+        const created = await controller.create({ workspaceId: workspace.id, sessionId: mirrorId })
+        const session = this.service('sessions')?.get(created.sessionId)
+        if (session === undefined) throw new LinkError('internal', '镜像会话未进入本机会话仓库')
+        const turn = 1
+        const userId = randomUUID()
+        const assistantId = randomUUID()
+        session.append('turn/start', { turn })
+        session.append('user/message', {
+          id: userId,
+          role: 'user',
+          content: [{ type: 'text', text: '这是从远程 DSH 镜像过来的用户消息。' }],
+          source: { kind: 'user' },
+        }, { surfaceOp: 'append' })
+        session.append('assistant/message', {
+          turn,
+          step: 1,
+          message: {
+            id: assistantId,
+            role: 'assistant',
+            content: [{ type: 'text', text: `这是来自 ${peer.name} 的镜像助手消息。` }],
+            source: { kind: 'model', provider: 'dsh-link', model: 'remote' },
+          },
+          stream: [],
+        }, { surfaceOp: 'append' })
+        session.append('turn/end', { turn, reason: { kind: 'completed' } })
+        await workspace.attachSession(created.sessionId)
+        const titleService = this.service('sessionTitle')
+        if (titleService !== undefined) {
+          try {
+            await titleService.rename(session, extra?.title ?? '远程镜像测试会话')
+          } catch (error) {
+            this.log('warn', `dsh-link: mirror title failed: ${errorMessage(error)}`)
+          }
+        }
+        return {
+          mirrorId: created.sessionId,
+          workspaceId: workspace.id,
+          workspacePath: mirrorDir,
+          workspaceSessionIds: workspace.sessionIds,
+          appends: session.seq,
+        }
+      }
+      case 'types': {
+        const query = this.service('sessionQuery')
+        if (query === undefined) throw new LinkError('unavailable', '本机缺少 sessionQuery')
+        const sessionId = this.requireSessionId(extra?.sessionId)
+        const events = await query.listEvents(sessionId)
+        return { events: (Array.isArray(events) ? events : []).slice(-40).map((event) => ({ seq: event.seq, type: event.type })) }
+      }
+      case 'mirror-cleanup': {
+        const registry = this.service('workspaceRegistry')
+        const archived = []
+        const workspaces = []
+        for (const device of Object.values(this.mirrors.devices ?? {})) {
+          for (const entry of Object.values(device.sessions ?? {})) {
+            if (registry !== undefined && typeof entry.localId === 'string') {
+              try {
+                await registry.archiveSession(entry.localId, { stopActivity: true })
+                archived.push(entry.localId)
+              } catch {
+                // already archived or gone
+              }
+            }
+          }
+          if (registry !== undefined && typeof device.workspaceId === 'string') {
+            try {
+              await registry.delete(device.workspaceId)
+              workspaces.push(device.workspaceId)
+            } catch {
+              // already gone
+            }
+          }
+          try {
+            rmSync(this.mirrorDirFor(device.workspacePath?.split('/').pop() ?? ''), { recursive: true, force: true })
+          } catch {
+            // best effort
+          }
+        }
+        this.mirrors = { version: 1, devices: {} }
+        this.saveMirrorStore()
+        return { archived, workspaces }
+      }
+      case 'mirror-list': {
+        const list = await this.sessionList()
+        return { items: list.filter((item) => typeof item.cwd === 'string' && item.cwd.includes(`${join(dataDir(), 'mirrors')}`)) }
       }
       case 'speech-test': {
         const sampleRate = 16000
@@ -1733,15 +2397,17 @@ function toolDefinitions(host) {
       parameters: {
         type: 'object',
         properties: {
-          what: { type: 'string', enum: ['config', 'sessions', 'titles', 'workspaces', 'speech', 'events', 'raw', 'list', 'state', 'follow', 'speech-test'] },
+          what: { type: 'string', enum: ['config', 'sessions', 'titles', 'workspaces', 'speech', 'events', 'raw', 'list', 'state', 'follow', 'speech-test', 'mirror-probe', 'mirror-list', 'mirror-cleanup', 'types'] },
           session_id: { type: 'string', description: 'Required when what is events/raw/state/follow.' },
           before_seq: { type: 'number', description: 'Optional raw-event page cursor.' },
+          device: { type: 'string', description: 'Target peer for mirror-probe.' },
+          title: { type: 'string', description: 'Mirror title for mirror-probe.' },
         },
         required: ['what'],
         additionalProperties: false,
       },
       async execute(args) {
-        const value = await host.debugInfo(args.what, { sessionId: args.session_id, beforeSeq: args.before_seq })
+        const value = await host.debugInfo(args.what, { sessionId: args.session_id, beforeSeq: args.before_seq, device: args.device, title: args.title })
         return JSON.stringify(value, null, 2)
       },
     }),
@@ -1835,6 +2501,20 @@ async function handleApiRoute(request, host) {
         })
         return jsonResponse(200, { ok: true, ...result })
       }
+      case 'mirrors':
+        return jsonResponse(200, { ok: true, items: host.mirrorList() })
+      case 'watch': {
+        if (typeof body.sessionId !== 'string') return jsonResponse(400, { ok: false, error: '缺少 sessionId' })
+        return jsonResponse(200, { ok: true, ...host.watchMirror(body.sessionId) })
+      }
+      case 'unwatch': {
+        if (typeof body.sessionId !== 'string') return jsonResponse(400, { ok: false, error: '缺少 sessionId' })
+        host.unwatchMirror(body.sessionId)
+        return jsonResponse(200, { ok: true })
+      }
+      case 'sync':
+        await host.syncMirrors()
+        return jsonResponse(200, { ok: true, items: host.mirrorList() })
       case 'transcribe': {
         const peer = requireDevice(host, body.deviceId)
         const result = await host.remoteCall(peer.id, 'speech.transcribe', {
@@ -1966,6 +2646,14 @@ export function apply(ctx) {
       for (const dispose of disposers) dispose()
     }
   }, 'dsh-link: tools')
+
+  // Native mirror Sessions must never run their local model. Reject the step
+  // before a request is built and forward the admitted prompt to the remote
+  // Host instead; the live watch mirrors the remote reply back into the log.
+  ctx.effect(() => ctx.on('agent/pre-step', (payload, next) => {
+    const decision = host.handleMirrorPreStep(payload)
+    return decision === undefined ? next() : decision
+  }), 'dsh-link: mirror prompt gate')
 
   // Optional Web carrier: headless compositions keep the tools but have no UI
   // route to serve.

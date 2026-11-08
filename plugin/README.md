@@ -28,7 +28,8 @@ dshlink1.<base64url({"v":1,"u":"wss://...:8443","t":"..."})>
 
 ## 提供的能力
 
-- 侧边栏 **跨设备** 远程工作区：设备/会话列表、实时对话、发送/停止/新建/重命名；
+- 远程会话直接镜像到 DSH 左侧「工作区」的 `[远程] 设备名` 分组，会话行带「远程」标签，点开就是原生对话；原生输入框发送会转发到远程电脑；
+- 侧边栏 **跨设备** 管理页：设备/会话列表、配对、Android 提示；
 - Agent 工具：`link_status` / `link_devices` / `link_sessions` / `link_read` /
   `link_create` / `link_prompt` / `link_cancel` / `link_debug`；
 - 远程语音识别：手机上传 WAV，本机 `speechToText` 识别后返回文字。
