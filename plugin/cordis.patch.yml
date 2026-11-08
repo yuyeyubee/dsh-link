@@ -1,0 +1,6 @@
+# DSH Link: one Host row owning the relay connection, remote-session RPC,
+# local Session/STT adapters, agent tools, and the same-origin HTTP API used by
+# the Client half. The Client half is declared in package.json's `dsh.client`.
+- insert:
+    - id: dsh-link
+      name: '@local/dsh-link'
