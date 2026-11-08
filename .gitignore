@@ -9,3 +9,4 @@ android/app/build/
 pairing.txt
 *.log
 dist/
+.DS_Store
