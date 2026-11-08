@@ -105,7 +105,7 @@ fun ChatPane(
                 }
             }
 
-            if (!chat.followConnected && state.connection == ConnectionState.Connected) {
+            if (chat.followLost && state.connection == ConnectionState.Connected) {
                 Text(
                     text = stringResource(R.string.chat_follow_lost),
                     style = MaterialTheme.typography.labelSmall,
@@ -275,7 +275,7 @@ private fun MessageList(chat: ChatState, modifier: Modifier = Modifier) {
         state = listState,
         modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom),
     ) {
         items(chat.records, key = { it.seq }) { record ->
             ChatRecordItem(record)

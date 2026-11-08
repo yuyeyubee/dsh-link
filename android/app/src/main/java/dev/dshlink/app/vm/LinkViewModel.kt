@@ -56,6 +56,7 @@ data class ChatState(
     val loading: Boolean = false,
     val error: String? = null,
     val followConnected: Boolean = false,
+    val followLost: Boolean = false,
 )
 
 data class UiState(
@@ -419,7 +420,9 @@ class LinkViewModel(app: Application) : AndroidViewModel(app) {
     private fun startChatFlow(deviceId: String, sessionId: String) {
         chatJob?.cancel()
         chatJob = viewModelScope.launch {
-            updateChat(sessionId) { it.copy(loading = it.records.isEmpty(), error = null, followConnected = false) }
+            updateChat(sessionId) {
+                it.copy(loading = it.records.isEmpty(), error = null, followConnected = false, followLost = false)
+            }
             val followJob = launch {
                 try {
                     client.subscribe(
@@ -467,7 +470,9 @@ class LinkViewModel(app: Application) : AndroidViewModel(app) {
     private fun handleFollow(sessionId: String, message: SubMessage) {
         if (_ui.value.chat?.sessionId != sessionId) return
         when (message) {
-            is SubMessage.Accepted -> updateChat(sessionId) { it.copy(followConnected = true, loading = false) }
+            is SubMessage.Accepted -> updateChat(sessionId) {
+                it.copy(followConnected = true, followLost = false, loading = false)
+            }
 
             is SubMessage.Data -> when (val data = FollowData.parse(message.json)) {
                 is FollowData.Ready -> {
@@ -475,7 +480,7 @@ class LinkViewModel(app: Application) : AndroidViewModel(app) {
                         updateChat(sessionId) { it.copy(title = data.title) }
                         patchSession(sessionId, title = data.title)
                     }
-                    updateChat(sessionId) { it.copy(followConnected = true) }
+                    updateChat(sessionId) { it.copy(followConnected = true, followLost = false) }
                 }
 
                 is FollowData.Snapshot -> {
@@ -489,6 +494,7 @@ class LinkViewModel(app: Application) : AndroidViewModel(app) {
                             loading = false,
                             error = null,
                             followConnected = true,
+                            followLost = false,
                         )
                     }
                     patchSession(sessionId, running = data.state.running)
@@ -522,13 +528,16 @@ class LinkViewModel(app: Application) : AndroidViewModel(app) {
                 FollowData.Unknown -> Unit
             }
 
-            is SubMessage.Ended -> updateChat(sessionId) { it.copy(followConnected = false) }
+            is SubMessage.Ended -> updateChat(sessionId) {
+                it.copy(followConnected = false, followLost = true)
+            }
 
             is SubMessage.Failed -> updateChat(sessionId) {
                 it.copy(
                     error = it.error ?: message.message.ifBlank { message.code },
                     loading = false,
                     followConnected = false,
+                    followLost = true,
                 )
             }
         }

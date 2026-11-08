@@ -116,6 +116,8 @@ git clone https://github.com/yuyeyubee/dsh-link.git
 
 从 [Releases](https://github.com/yuyeyubee/dsh-link/releases/latest) 下载 `dsh-link-android-*.apk`，传到手机安装（需要允许「安装未知来源应用」）。
 
+![Android App](docs/images/link-android.png)
+
 打开 App：
 
 1. 粘贴与电脑**同一个** `dshlink1.…` 配对码；
