@@ -183,7 +183,7 @@ fun SettingsDialog(
                 )
                 InfoRow(
                     label = stringResource(R.string.settings_connection),
-                    value = connectionLabel(state.connection),
+                    value = stringResource(connectionLabelRes(state.connection)),
                 )
                 InfoRow(
                     label = stringResource(R.string.settings_device_id),
@@ -294,9 +294,10 @@ private fun InfoRow(label: String, value: String) {
     }
 }
 
-private fun connectionLabel(connection: ConnectionState): String = when (connection) {
-    ConnectionState.Unconfigured -> "未配对"
-    ConnectionState.Connecting -> "连接中…"
-    ConnectionState.Connected -> "已连接"
-    ConnectionState.Offline -> "离线"
+@androidx.annotation.StringRes
+private fun connectionLabelRes(connection: ConnectionState): Int = when (connection) {
+    ConnectionState.Unconfigured -> R.string.state_unconfigured
+    ConnectionState.Connecting -> R.string.state_connecting
+    ConnectionState.Connected -> R.string.state_connected
+    ConnectionState.Offline -> R.string.state_offline
 }

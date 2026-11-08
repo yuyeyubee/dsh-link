@@ -100,6 +100,22 @@ app/src/main/java/dev/dshlink/app/
 app/src/test/java/dev/dshlink/app/  # PairingCodeTest / WavTest / ProtocolCodecTest
 ```
 
+## 验证记录
+
+构建产物与验证环境（2026-11-09）：
+
+- `./gradlew :app:assembleDebug`：BUILD SUCCESSFUL，APK 约 10.1 MiB。
+- `./gradlew :app:testDebugUnitTest`：31 个用例全通过（WavTest 5 / PairingCodeTest 12 / ProtocolCodecTest 14），
+  覆盖配对码编解码与异常、relay 帧类型、ChatRecord 全类型、follow 帧、WAV 头字段。
+- Android 15（arm64）模拟器冒烟：安装启动、真实配对码连接公网 relay、设备列表（含假 Host 与真实 Mac）、
+  session.list / history / follow 记录渲染、prompt 发送成功并有回复、断线后自动重连并切换到在线设备、
+  设置/新建会话对话框、麦克风权限弹窗、录音中 UI（计时/电平/取消/完成）、识别失败态与重试/取消。
+- 布局：1280dp 宽（平板横屏）自动双栏；1080×2400 / 440dpi（393dp）单栏 + 返回；深/浅色主题均验证。
+- 语音链路：模拟器麦克风静音 → 生成 16 kHz 单声道 44 字节头 WAV → base64 → 真实 Host `speech.transcribe`
+  被接受（返回空文本，App 显示「没有识别到语音内容，请重试」），证明 Host 的 WAV 校验通过。
+- 仍待真机验证：华为 Mate X7 真实麦克风识别效果、折叠铰链 FoldingFeature 布局（模拟器不产生铰链）、
+  HarmonyOS 上的安装与权限弹窗样式。
+
 ## 已知限制
 
 - 语音是本机识别：电脑端要先在 DSH 里配好 SenseVoice 等 provider，未就绪时 App 会显示错误；
