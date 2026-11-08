@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 原创简单图形：三个节点互连，象征手机与多台电脑互联。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 连线 -->
+    <path
+        android:pathData="M40,42 L68,42 M40,42 L54,68 M68,42 L54,68"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round" />
+
+    <!-- 节点 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M40,33a9,9 0 1,0 0,18a9,9 0 1,0 0,-18z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M68,33a9,9 0 1,0 0,18a9,9 0 1,0 0,-18z" />
+    <path
+        android:fillColor="#8FD3FF"
+        android:pathData="M54,59a9,9 0 1,0 0,18a9,9 0 1,0 0,-18z" />
+</vector>

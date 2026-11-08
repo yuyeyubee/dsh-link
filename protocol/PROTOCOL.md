@@ -20,7 +20,7 @@ dshlink1.<base64url(JSON)>
 JSON 原文（字段可按任意顺序，解码端忽略未知字段）：
 
 ```json
-{ "v": 1, "u": "wss://154-21-194-117.sslip.io:8443", "t": "<64 hex token>" }
+{ "v": 1, "u": "wss://<DOMAIN>:8443", "t": "<64 hex token>" }
 ```
 
 - 前缀固定 `dshlink1.`；`.` 后是 JSON 的 base64url（无 `=` 填充）。
@@ -95,7 +95,8 @@ relay 转回调用方并还原 id：
 ```
 
 - 目标不在线：relay 直接回 `{ "t":"reply", "id":"c1", "ok":false, "error":{"code":"offline","message":"..."} }`。
-- 调用方超时：30 秒；超时后丢弃该 id 的迟到 reply。
+- 调用方超时：普通方法 30 秒，`speech.transcribe` 180 秒；超时后丢弃该 id 的迟到 reply。
+- relay 的孤儿调用清理：普通方法 30 秒，`speech.transcribe` 180 秒（给首次加载本地语音模型留时间）。
 - `method` 由被调方校验；未知方法回 `bad-request`。
 
 ### 2.4 订阅流（会话实时更新）
@@ -250,7 +251,7 @@ Host 把 DSH 会话事件映射为下表的记录；**只读**，不改变本地
 | `speech.status` | `{}` | `{ "available": true, "phase": "ready", "providers": [ { "id", "name", "languages" } ], "language": "zh" }` |
 | `speech.transcribe` | `{ "audioBase64", "language"? }` | `{ "text", "audioSeconds", "inferenceSeconds" }` |
 
-- `audioBase64`：完整 **WAV** 文件（16 kHz / 单声道 / 16-bit PCM 推荐），解码后 ≤ 4 MiB。
+- `audioBase64`：完整 **WAV** 文件，且必须是标准 16 kHz / 单声道 / 16-bit PCM 格式（44 字节头，`data` 块紧接 `fmt `；`RIFF` 长度与文件一致），解码后 ≤ 4 MiB。不满足时回 `bad-request`。
 - Host 用本机 DSH 的 `speechToText` 服务识别（provider 由 DSH 设置决定，通常是 SenseVoice 本地模型）。
 - 模型未就绪时 Host 会触发 prepare 并等待，最长 120 秒；超时回 `timeout`。
 - 识别结果返回调用方（Android 显示在可编辑输入框中），**不**自动发送到会话。
