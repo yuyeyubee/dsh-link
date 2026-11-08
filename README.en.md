@@ -116,6 +116,8 @@ The page then shows **Connected** and the other online computers. Repeat on ever
 
 Download `dsh-link-android-*.apk` from [Releases](https://github.com/yuyeyubee/dsh-link/releases/latest) and install it on the phone (allow installing from unknown sources).
 
+![Android app](docs/images/link-android.png)
+
 In the app:
 
 1. paste the **same** `dshlink1.…` pairing code;

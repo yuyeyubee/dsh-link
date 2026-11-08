@@ -223,7 +223,7 @@ private fun MainContent(
     }
 
     when {
-        separating && fold != null && fold.vertical -> {
+        fold != null && fold.separating && fold.vertical -> {
             val leftWidth = if (fold.start > 200.dp) fold.start else 320.dp
             Row(Modifier.fillMaxSize()) {
                 sidebar(Modifier.width(leftWidth).fillMaxHeight())
@@ -237,7 +237,7 @@ private fun MainContent(
             }
         }
 
-        separating && fold != null && !fold.vertical -> {
+        fold != null && fold.separating && !fold.vertical -> {
             Column(Modifier.fillMaxSize()) {
                 chat(Modifier.weight(1.2f).fillMaxWidth())
                 Box(
