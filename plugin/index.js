@@ -777,7 +777,6 @@ class LinkHost {
     this.config = this.readConfig()
     this.token = await this.readToken()
     await this.importPairingFile()
-    this.warmSpeech()
     if (this.isConfigured()) this.connectRelay()
     else this.setState('unconfigured')
   }
