@@ -3748,7 +3748,6 @@ window.__ModuleLoader__.load({
 
         const t = ctx.locale.bind(NS)
         const Workspace = createWorkspace(ctx, t)
-        const SidebarWorkspace = createWorkspace(ctx, t, { compact: true })
         const SettingsPage = createSettingsPage(ctx, t)
         const RemoteBadge = createRemoteBadge(t)
         const RemoteHeaderBadge = createRemoteHeaderBadge(t)
@@ -3771,16 +3770,6 @@ window.__ModuleLoader__.load({
           name: 'main',
           key: 'dsh-link',
         }, Workspace))
-
-        // A lower priority wins this single slot; -100 shadows the shipped
-        // WorkspaceBrowser with the compact, per-computer tab browser.
-        ctx.slots.inject('sidebar.workspaces', () => {
-          try {
-            return ctx.slots.register({ name: 'sidebar.workspaces', priority: -100 }, SidebarWorkspace)
-          } catch (error) {
-            return () => {}
-          }
-        })
 
         ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section',

@@ -36,7 +36,7 @@
 | 组件 | 目录 | 职责 |
 | --- | --- | --- |
 | DSH 插件 Host 半 | `plugin/index.js` | 配对存储、WebSocket 客户端、主机 RPC、本地会话/语音适配、Agent 工具、同源 HTTP API |
-| DSH 插件 Web UI 半 | `plugin/client.js` | 左侧「工作区」多电脑标签页、远程项目树、远程设置、设置页 |
+| DSH 插件 Web UI 半 | `plugin/client.js` | 侧边栏「跨设备」入口、远程工作区主面板、设置页 |
 | Relay | `relay/` | 公网 TLS WebSocket 中转；只转发，不存业务数据 |
 | Android App | `android/` | 多设备会话控制、语音录制与回传、折叠屏适配 |
 | 协议 | `protocol/PROTOCOL.md` | 三方唯一契约 |
@@ -53,9 +53,9 @@
 
 电脑端无需开放端口：NAT/防火墙后的 DSH 主动外连 `wss://...:8443`。
 
-### 3.2 原生会话镜像
+### 3.2 原生工作区镜像
 
-为了让远程会话直接用 DSH 原生对话界面渲染，Host 半把远程会话**镜像**成本机会话：
+为了让远程会话出现在 DSH 左侧「工作区」而不是插件页面，Host 半把远程会话**镜像**成本机会话：
 
 1. 每台在线电脑在 `~/.dsh/dsh-link/mirrors/<deviceId>/` 建一个真实目录，并注册为工作区
    `[远程] <远程项目名> · <设备名>`（按远程 Workspace 分组）；
@@ -68,17 +68,6 @@
    远程回复再通过 watch 追加回来；
 5. 镜像映射存于 `~/.dsh/dsh-link/mirrors.json`（0600），只含设备名、标题、远程 seq，
    不含 token。
-
-### 3.3 左侧工作区标签页
-
-Web UI 半替换 DSH 的 `sidebar.workspaces` 区域（priority `-100`，覆盖自带列表），
-在同一个位置渲染浏览器式标签栏：
-
-1. 第一个标签固定为「本机」，读取本地 `workspace.list` / `session.list` / `workspace.snapshot`；
-2. 每台在线电脑一个标签，标签内按该电脑的 Workspace 分组展示项目和会话；
-3. 点远程会话时按需 `ensureMirror`，再调用原生 `uiWorkspace.openSession` 打开镜像会话；
-4. 搜索、归档、重命名、新建会话、模型/思考强度/插件预设都作用于当前标签；
-5. 设备离线后标签消失并自动回到「本机」；禁用插件即可恢复 DSH 自带工作区列表。
 
 这样侧边栏分组、会话行、对话 UI、工具卡片全部复用 DSH 原生实现；插件页面只保留为
 设备/配对/Android 管理入口。
