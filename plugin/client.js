@@ -633,7 +633,7 @@ window.__ModuleLoader__.load({
       .dsh-link-card { display: flex; flex-direction: column; gap: 10px; padding: 13px 15px; border: .5px solid var(--dsw-alias-border-l3); border-radius: 12px; background: var(--dsw-alias-bg-layer-1); min-width: 0; }
       .dsh-link-card.is-danger { border-color: var(--dsw-alias-state-error-primary); }
       .dsh-link-card-title { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 13px; font-weight: 600; line-height: 1.4; }
-      .dsh-link-switch { display: inline-flex; align-items: center; gap: 9px; align-self: flex-start; cursor: pointer; user-select: none; }
+      .dsh-link-switch { position: relative; display: inline-flex; align-items: center; gap: 9px; align-self: flex-start; cursor: pointer; user-select: none; }
       .dsh-link-switch.is-disabled { cursor: default; opacity: .6; }
       .dsh-link-switch input { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
       .dsh-link-switch-track { position: relative; flex: none; width: 36px; height: 20px; border-radius: 999px; border: .5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-2); transition: background .16s ease, border-color .16s ease; }
