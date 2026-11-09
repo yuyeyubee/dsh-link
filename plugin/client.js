@@ -3141,6 +3141,9 @@ window.__ModuleLoader__.load({
                 localSessionId = mirror !== null && typeof mirror === 'object' && typeof mirror.localSessionId === 'string' ? mirror.localSessionId : ''
               }
               if (localSessionId === '') throw new Error(t('browser.mirrorFailed'))
+              // A mirror can be archived locally even while the remote Session is
+              // active; restore it before opening the native conversation.
+              await api.archive(undefined, localSessionId, false).catch(() => {})
             }
             ui.openSession(localSessionId)
           } catch (error) {
