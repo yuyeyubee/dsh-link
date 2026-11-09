@@ -3,6 +3,7 @@
 公网 TLS WebSocket relay：在同一 space token 空间内维护**在线主机名录**并转发
 `call` / `sub` / `reply` / `event` / `end` 帧。业务方法（`session.*`、`speech.*`…）
 不解析、不持久化。接口契约见 [`../protocol/PROTOCOL.md`](../protocol/PROTOCOL.md) 第 2 节。
+兼容：协议 **v1**；可与插件 1.2.1 及同代 Android App 配套使用。
 
 - 公网入口：`wss://<DOMAIN>:8443/`（Let's Encrypt 证书；443 可留给其它服务）
 - 单 space token（64 位 hex），只存服务器 `/opt/dsh-link/token`（0600）与权威配对码

@@ -166,8 +166,8 @@ relay 向被调方发 `{ "t":"unsub", "rid":"r7" }`，被调方必须中止对�
 ```json
 {
   "deviceId": "dev_xxx", "name": "家里的 MacBook", "platform": "macos",
-  "version": "1.0.0", "dshVersion": "0.2.2-rc.1", "time": 1762531200000,
-  "workspaceDefault": "/Users/me/project",
+  "version": "1.2.1", "dshVersion": "0.2.2-rc.1", "time": 1762531200000,
+  "workspaceDefault": "/Users/me/project", "workspaceCount": 3,
   "capabilities": ["sessions", "speech"],
   "speech": { "available": true, "providers": ["sensevoice-local"], "language": "zh" }
 }
@@ -178,15 +178,25 @@ relay 向被调方发 `{ "t":"unsub", "rid":"r7" }`，被调方必须中止对�
 | 方法 | 参数 | 返回 |
 | --- | --- | --- |
 | `workspace.list` | `{}` | `{ "items": [ { "workspaceId", "title", "path" } ] }` |
+| `workspace.snapshot` | `{ "workspaceId" }` | `{ "workspaceId", "title", "path", "sessions": [SessionSummaryView] }` |
+| `workspace.rename` | `{ "workspaceId", "title" }` | `{ "title" }` |
+| `workspace.delete` | `{ "workspaceId" }` | `{ "deleted": true }` |
 | `session.list` | `{}` | `{ "items": [ SessionSummaryView ] }` |
 | `session.create` | `{ "workspaceId"?, "cwd"?, "agentPreset"? }` | `{ "sessionId" }` |
 | `session.prompt` | `{ "sessionId", "text", "mode"?: "queue"\|"steer" }` | `{ "accepted": true }` |
 | `session.cancel` | `{ "sessionId" }` | `{ "accepted": true }` |
 | `session.rename` | `{ "sessionId", "title" }` | `{ "title" }` |
+| `session.info` | `{ "sessionId" }` | `{ "sessionId", "title", "cwd", "modelSelection"?, "agentPreset"? }` |
+| `session.archive` | `{ "sessionId" }` | `{ "archived": true }` |
+| `session.unarchive` | `{ "sessionId" }` | `{ "archived": false }` |
+| `session.pin` | `{ "sessionId" }` | `{ "pinned": true }` |
+| `session.unpin` | `{ "sessionId" }` | `{ "pinned": false }` |
 | `session.selectModel` | `{ "sessionId", "selection": { "provider", "model", "reasoningEffort"? } }` | `{ "selected": { "provider", "model", "reasoningEffort"? } }` |
+| `session.selectPreset` | `{ "sessionId", "preset" }` | `{ "preset" }` |
+| `model.catalog` | `{}` | `{ "items": [ { "provider", "model", "name"? , "reasoningEfforts"? , "defaultReasoningEffort"? } ] }` |
 | `session.state` | `{ "sessionId" }` | `SessionStateView` |
 | `session.history` | `{ "sessionId", "maxMessages"? }` | `{ "records": [ChatRecord], "cursor": 123, "hasMore": false, "state": SessionStateView }` |
-| `session.follow` (流) | `{ "sessionId" }` | 见 3.4 |
+| `session.follow` (流) | `{ "sessionId", "assistantStream"? }` | 见 3.4 |
 
 `SessionSummaryView`：
 
@@ -201,6 +211,7 @@ relay 向被调方发 `{ "t":"unsub", "rid":"r7" }`，被调方必须中止对�
   用于镜像/设置页展示与双向同步；调用方应把它原样放进 `session.selectModel.selection`。
 
 - 按 `updatedAt` 降序，最多 100 条；`title` 缺失时返回 `""`，App/UI 自行显示回退名。
+- `session.history.maxMessages` 取 1–200，缺省 60；`session.follow` 的 `snapshot` 取最近 ≤ 60 条。
 - `cwd` 可能缺失；`parentSessionId` 缺失为 `null`。
 
 `SessionStateView`：
@@ -228,7 +239,7 @@ Host 把 DSH 会话事件映射为下表的记录；**只读**，不改变本地
 
 - `user` 来自 `user/message` 的文本块；`assistant` 来自 `assistant/message` 的文本块，`reasoning` 为其 reasoning 块（可缺省）。
 - `assistant` / `tool-call` / `tool-result` 携带源事件的 `turn`、`step`，接收端可据此把工具调用还原成原生工具卡片（而不是折叠成一段文本）。
-- 富内容（图片/文件/工具块）不传输，只保留文本；`text` 截断到 16 KiB，`args` 截断到 4 KiB。
+- 富内容（图片/文件/工具块）不传输，只保留文本；截断上限：用户/助手 `text` 8 KiB、`reasoning` 4 KiB、工具 `args` 4 KiB、工具结果 `text` 2 KiB。
 - 未知事件忽略；`turn-end.reason` 用 `TurnEndReason` 的 `kind` 字符串。
 - 记录按 `seq` 升序返回。
 
@@ -288,16 +299,31 @@ Host 把 DSH 会话事件映射为下表的记录；**只读**，不改变本地
 | op | 请求 | 返回 |
 | --- | --- | --- |
 | `status` | `{}` | `PluginStatus` |
+| `settings` | `{ "streaming": boolean }` | `PluginStatus`（写入本机 `config.json`） |
 | `save` | `{ "pairingCode", "deviceName"? }` | `PluginStatus` |
 | `forget` | `{}` | `PluginStatus` |
 | `sessions` | `{ "deviceId" }` | `{ "items": [SessionSummaryView] }` |
 | `workspaces` | `{ "deviceId" }` | `{ "items": [...] }` |
+| `tree` | `{ "deviceId"? }` | 项目 + 会话树（本机或远程）、置顶/归档集合 |
 | `history` | `{ "deviceId", "sessionId", "maxMessages"? }` | 同 `session.history` |
 | `send` | `{ "deviceId", "sessionId", "text" }` | `{ "accepted": true }` |
 | `cancel` | `{ "deviceId", "sessionId" }` | `{ "accepted": true }` |
 | `create` | `{ "deviceId", "workspaceId"?, "cwd"? }` | `{ "sessionId" }` |
-| `transcribe` | `{ "deviceId", "audioBase64", "language"? }` | 同 `speech.transcribe` |
 | `rename` | `{ "deviceId", "sessionId", "title" }` | `{ "title" }` |
+| `renameWorkspace` | `{ "deviceId", "workspaceId", "title" }` | `{ "title" }` |
+| `archive` | `{ "deviceId", "sessionId", "archive": boolean }` | `{ "archived": boolean }` |
+| `sessionInfo` | `{ "deviceId", "sessionId" }` | 同 `session.info` |
+| `models` | `{ "deviceId" }` | 同 `model.catalog` |
+| `selectModel` | `{ "deviceId", "sessionId", "provider", "model", "reasoningEffort"? }` | 同 `session.selectModel` |
+| `presets` | `{ "deviceId" }` | `{ "items": [ { "id", "name"?, "isDefault"? } ] }` |
+| `selectPreset` | `{ "deviceId", "sessionId", "preset" }` | 同 `session.selectPreset` |
+| `ensureMirror` | `{ "deviceId", "sessionId" }` | `{ "localSessionId" }`（为远程会话建立/复用本机镜像） |
+| `mirrors` | `{}` | `{ "items": [...] }` 镜像映射与流诊断 |
+| `watch` / `unwatch` | `{ "sessionId" }` | `{ "watching": true }` |
+| `sync` | `{ "deviceId"? }` | 强制同步镜像 |
+| `localRenameSession` / `localRenameWorkspace` | 本机会话/项目 id + 标题 | `{ "title" }` |
+| `localModels` | `{}` | 本机模型目录 |
+| `transcribe` | `{ "deviceId", "audioBase64", "language"? }` | 同 `speech.transcribe` |
 
 `PluginStatus`：
 
@@ -309,11 +335,16 @@ Host 把 DSH 会话事件映射为下表的记录；**只读**，不改变本地
   "connection": { "state": "connected", "relayUrl": "wss://…", "lastError": null },
   "peers": [ { "id": "dev_yyy", "name": "出差笔记本", "platform": "windows" } ],
   "speech": { "available": true, "phase": "ready", "language": "zh" },
-  "version": "1.0.0"
+  "settings": { "streaming": true },
+  "mirrors": [ { "localSessionId", "deviceId", "deviceName", "remoteSessionId", "title" } ],
+  "version": "1.2.1"
 }
 ```
 
 `connection.state`: `unconfigured` | `connecting` | `connected` | `offline`。
+
+`settings.streaming` 是本机显示偏好：关闭后 Host 不再请求/转发远程瞬时分片，只存在本机
+`config.json`，不写入 relay。`mirrors` 是镜像映射列表（本机镜像会话 ←→ 远程会话）。
 
 ## 5. 错误码
 
