@@ -34,7 +34,7 @@ export const name = 'dsh-link'
 export const inject = ['tools', 'systemPrompt', 'credentials']
 
 /** Version reported to peers and the Web UI. */
-const VERSION = '1.2.0'
+const VERSION = '1.2.1'
 /** On-disk config document version. */
 const CONFIG_VERSION = 1
 /** Same-origin API route used by the Client half. */

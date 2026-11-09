@@ -111,7 +111,7 @@ After installation, refresh the DSH page (the desktop app usually applies it thr
 
 The page then shows **Connected** and the other online computers. Repeat on every computer.
 
-The **Streaming output** switch on the settings page controls how remote replies are shown: when on (the default) they stream character by character while the other computer generates them; when off each reply appears at once after it completes. It applies to both native mirror sessions and the plugin's own remote conversation view.
+The **Streaming output** switch on the settings page controls how remote replies are shown: when on (the default) they stream character by character while the other computer generates them; when off each reply appears at once after it completes. It applies to both native mirror sessions and the plugin's own remote conversation view, and it is per computer — every install keeps its own preference.
 
 > The same pairing code is used by the phone. It contains the space token; treat it like a password.
 >
