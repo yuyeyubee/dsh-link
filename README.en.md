@@ -195,6 +195,7 @@ phone recording (16 kHz mono PCM16) → standard WAV → base64
 - No offline queue: a remote call fails immediately when the target computer is offline.
 - Remote Sessions are **mirrors**: only the 10 most recent non-subagent Sessions per computer are synced; deleting a remote Session does not remove its local mirror automatically.
 - Remote tool calls/results reuse the native DSH tool cards (collapsed by default, expandable for arguments/results); attachments and approval prompts still happen on the target computer.
+- Mirror history synced before 1.1.0 keeps the old text form. Ask the local AI to run `link_debug what=rebuild-mirrors` to rebuild mirrors as native events (old mirrors are archived and the new ones re-pull remote history).
 - Native composer sends use a mirror gate: the local turn ends without a model request and the remote reply is appended afterwards. Avoid sending the next prompt before the previous reply arrives.
 - A cold/closed mirror is refreshed when opened; the Host pushes live updates only while the mirror conversation is open.
 - Long tool results and text are truncated to keep relay/mobile frames bounded; read the full content on the target computer.
