@@ -665,33 +665,53 @@ window.__ModuleLoader__.load({
         .dsh-link-overlay { padding: 12px; }
       }
 
-      .dsh-link-page.is-compact { height: 100%; min-height: 0; padding-top: 52px; background: var(--dsw-specific-sidebar-fill); color: var(--dsw-alias-label-primary); }
-      .dsh-link-page.is-compact .dsh-link-tabbar { padding: 5px 6px; gap: 2px; background: transparent; }
+      .dsh-link-page.is-compact { height: 100%; min-height: 0; padding-top: 0; background: var(--dsw-specific-sidebar-fill); color: var(--dsw-alias-label-primary); }
+      .dsh-link-page.is-compact .dsh-link-sidebar-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 12px 10px 3px; }
+      .dsh-link-page.is-compact .dsh-link-sidebar-title { font-size: 12px; font-weight: 600; color: var(--dsw-alias-label-secondary); letter-spacing: .01em; }
+      .dsh-link-page.is-compact .dsh-link-sidebar-head-actions { display: flex; align-items: center; gap: 1px; }
+      .dsh-link-page.is-compact .dsh-link-sidebar-head-btn { display: inline-flex; align-items: center; justify-content: center; width: 23px; height: 23px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--dsw-alias-label-tertiary); cursor: pointer; }
+      .dsh-link-page.is-compact .dsh-link-sidebar-head-btn:hover,
+      .dsh-link-page.is-compact .dsh-link-sidebar-head-btn.is-active { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+      .dsh-link-page.is-compact .dsh-link-sidebar-search { flex: none; padding: 0 10px 6px; }
+      .dsh-link-page.is-compact .dsh-link-sidebar-search .dsh-link-browser-search { width: 100%; height: 28px; }
+      .dsh-link-page.is-compact .dsh-link-tabbar { padding: 0 10px 5px; gap: 0; background: transparent; border-bottom: 0; }
       .dsh-link-page.is-compact .dsh-link-tablist { gap: 2px; }
-      .dsh-link-page.is-compact .dsh-link-tab { height: 25px; max-width: 118px; padding: 0 7px; border-radius: 6px; font-size: 11px; }
-      .dsh-link-page.is-compact .dsh-link-tabbar-actions { gap: 2px; padding-left: 2px; }
-      .dsh-link-page.is-compact .dsh-link-tabbar-actions .dsh-link-btn { width: 24px; height: 24px; padding: 0; }
+      .dsh-link-page.is-compact .dsh-link-tab { position: relative; height: 28px; max-width: 126px; padding: 0 9px; border: 0; border-radius: 6px; background: transparent; font-size: 12px; font-weight: 500; color: var(--dsw-alias-label-secondary); }
+      .dsh-link-page.is-compact .dsh-link-tab:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+      .dsh-link-page.is-compact .dsh-link-tab.is-active { background: transparent; color: var(--dsw-alias-label-primary); box-shadow: none; font-weight: 600; }
+      .dsh-link-page.is-compact .dsh-link-tab.is-active::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: 1px; height: 2px; border-radius: 2px; background: var(--dsw-alias-state-business-primary); }
+      .dsh-link-page.is-compact .dsh-link-tabbar-actions { display: none; }
       .dsh-link-page.is-compact .dsh-link-tabs-body { flex: 1; min-height: 0; }
       .dsh-link-page.is-compact .dsh-link-listpane { width: 100%; flex: 1; min-height: 0; border-right: 0; background: transparent; }
       .dsh-link-page.is-compact .dsh-link-conv { display: none; }
       .dsh-link-page.is-compact .dsh-link-browser { flex: 1; min-height: 0; }
-      .dsh-link-page.is-compact .dsh-link-browser-toolbar { flex-wrap: wrap; gap: 3px; padding: 5px 6px; }
-      .dsh-link-page.is-compact .dsh-link-browser-search { flex: 1 1 100%; min-width: 0; height: 26px; }
-      .dsh-link-page.is-compact .dsh-link-browser-search input { font-size: 11.5px; }
-      .dsh-link-page.is-compact .dsh-link-browser-actions { flex: 1 1 100%; justify-content: flex-end; gap: 3px; }
-      .dsh-link-page.is-compact .dsh-link-browser-actions .dsh-link-btn { height: 24px; padding: 0 6px; font-size: 10.5px; }
+      .dsh-link-page.is-compact .dsh-link-browser-toolbar { display: none; }
+      .dsh-link-page.is-compact .dsh-link-browser-search { flex: 1; min-width: 0; height: 28px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-layer-1); }
+      .dsh-link-page.is-compact .dsh-link-browser-search input { font-size: 12px; }
+      .dsh-link-page.is-compact .dsh-link-browser-actions { flex: none; gap: 2px; }
+      .dsh-link-page.is-compact .dsh-link-browser-actions .dsh-link-btn { width: 26px; height: 26px; padding: 0; border: 0; background: transparent; color: var(--dsw-alias-label-tertiary); font-size: 10.5px; }
+      .dsh-link-page.is-compact .dsh-link-browser-actions .dsh-link-btn:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
       .dsh-link-page.is-compact .dsh-link-browser-actions .dsh-link-btn-label { display: none; }
-      .dsh-link-page.is-compact .dsh-link-browser-inner { padding: 0 2px 12px; }
-      .dsh-link-page.is-compact .dsh-link-project-head { padding: 5px 4px; gap: 4px; }
+      .dsh-link-page.is-compact .dsh-link-browser-inner { padding: 0 8px 12px; }
+      .dsh-link-page.is-compact .dsh-link-project { margin: 0; padding: 0; border: 0 !important; border-radius: 0; background: transparent !important; box-shadow: none !important; }
+      .dsh-link-page.is-compact .dsh-link-project-head,
+      .dsh-link-page.is-compact .dsh-link-project-sessions,
+      .dsh-link-page.is-compact .dsh-link-project-note { border: 0 !important; background: transparent !important; box-shadow: none !important; }
+      .dsh-link-page.is-compact .dsh-link-project-head { padding: 5px 3px; gap: 4px; border: 0; border-radius: 6px; background: transparent; }
+      .dsh-link-page.is-compact .dsh-link-project-head:hover { background: var(--dsw-alias-interactive-bg-hover); }
       .dsh-link-page.is-compact .dsh-link-project-chevron { flex: none; }
       .dsh-link-page.is-compact .dsh-link-project-path { display: none; }
       .dsh-link-page.is-compact .dsh-link-project-count { display: none; }
-      .dsh-link-page.is-compact .dsh-link-project-title { font-size: 11.5px; }
+      .dsh-link-page.is-compact .dsh-link-project-title { font-size: 12.5px; font-weight: 500; }
       .dsh-link-page.is-compact .dsh-link-project-actions { gap: 0; }
-      .dsh-link-page.is-compact .dsh-link-project-sessions { padding-left: 8px; }
-      .dsh-link-page.is-compact .dsh-link-browser-session { padding: 4px 5px; gap: 4px; }
-      .dsh-link-page.is-compact .dsh-link-browser-session-title { font-size: 11.5px; }
-      .dsh-link-page.is-compact .dsh-link-browser-session-meta { font-size: 10px; }
+      .dsh-link-page.is-compact .dsh-link-project-sessions { padding-left: 22px; }
+      .dsh-link-page.is-compact .dsh-link-project-note { margin: 0; padding: 1px 0 7px 23px; border: 0; background: transparent; font-size: 11.5px; color: var(--dsw-alias-label-tertiary); }
+      .dsh-link-page.is-compact .dsh-link-browser-session { padding: 5px 6px; gap: 4px; border: 0; border-radius: 6px; background: transparent; box-shadow: none; }
+      .dsh-link-page.is-compact .dsh-link-browser-session:hover { background: var(--dsw-alias-interactive-bg-hover); }
+      .dsh-link-page.is-compact .dsh-link-browser-session-main { display: flex; flex-direction: row; align-items: center; gap: 6px; min-width: 0; }
+      .dsh-link-page.is-compact .dsh-link-browser-session-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 400; }
+      .dsh-link-page.is-compact .dsh-link-browser-session-meta { flex: none; display: flex; align-items: center; gap: 4px; margin-left: auto; white-space: nowrap; }
+      .dsh-link-page.is-compact .dsh-link-browser-session-meta { font-size: 10.5px; }
       .dsh-link-page.is-compact .dsh-link-browser-session-badges { display: none; }
       .dsh-link-page.is-compact .dsh-link-browser-session-actions { display: none; }
       .dsh-link-page.is-compact .dsh-link-browser-session:hover .dsh-link-browser-session-actions { display: flex; }
@@ -1268,6 +1288,21 @@ window.__ModuleLoader__.load({
       return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true, focusable: 'false', style: { display: 'block' } },
         h('path', { d: 'M13 8a5 5 0 1 1-1.7-3.8', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round' }),
         h('path', { d: 'M13.2 2.5v3.1h-3.1', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round' }),
+      )
+    }
+
+    /** Archive glyph for the compact sidebar filter. */
+    function ArchiveGlyph({ size = 14 }) {
+      return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true },
+        h('path', { d: 'M2.5 5.5h11v8h-11zM1.8 3.2h12.4v2.3H1.8zM6 8.2h4', stroke: 'currentColor', strokeWidth: 1.3, strokeLinejoin: 'round', strokeLinecap: 'round' }),
+      )
+    }
+
+    /** Search glyph for the compact sidebar header. */
+    function SearchGlyph({ size = 14 }) {
+      return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true },
+        h('circle', { cx: 7, cy: 7, r: 4.5, stroke: 'currentColor', strokeWidth: 1.3 }),
+        h('path', { d: 'm10.5 10.5 3 3', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round' }),
       )
     }
 
@@ -2941,6 +2976,7 @@ window.__ModuleLoader__.load({
         const [activeKey, setActiveKey] = React.useState('local')
         const [trees, setTrees] = React.useState({})
         const [search, setSearch] = React.useState('')
+        const [searchOpen, setSearchOpen] = React.useState(false)
         const [showArchived, setShowArchived] = React.useState(false)
         const [collapsed, setCollapsed] = React.useState({})
         const [menu, setMenu] = React.useState(null)
@@ -3521,7 +3557,14 @@ window.__ModuleLoader__.load({
               ),
               h('div', { className: 'dsh-link-browser-actions' },
                 showArchivedToggle
-                  ? h('button', { type: 'button', className: cls('dsh-link-btn is-small', showArchived ? 'is-primary' : ''), 'aria-pressed': showArchived, onClick: toggleArchived }, showArchived ? t('browser.hideArchived') : t('browser.showArchived', { n: archivedCount }))
+                  ? h('button', {
+                      type: 'button',
+                      className: cls('dsh-link-btn is-small', showArchived ? 'is-primary' : ''),
+                      'aria-pressed': showArchived,
+                      title: showArchived ? t('browser.hideArchived') : t('browser.showArchived', { n: archivedCount }),
+                      'aria-label': showArchived ? t('browser.hideArchived') : t('browser.showArchived', { n: archivedCount }),
+                      onClick: toggleArchived,
+                    }, compact ? h(ArchiveGlyph, { size: 13 }) : (showArchived ? t('browser.hideArchived') : t('browser.showArchived', { n: archivedCount })))
                   : null,
                 h('button', {
                   type: 'button',
@@ -3588,6 +3631,8 @@ window.__ModuleLoader__.load({
           )
         }
 
+        const sidebarTree = trees[activeKey] !== undefined && trees[activeKey].tree !== null ? trees[activeKey].tree : null
+        const sidebarArchivedCount = sidebarTree !== null && Array.isArray(sidebarTree.archivedSessionIds) ? sidebarTree.archivedSessionIds.length : 0
         const pageClass = compact ? 'dsh-link-page is-compact' : 'dsh-link-page'
         if (compact && !wide) {
           return h('div', { className: 'dsh-link-sidebar-rail' },
@@ -3601,7 +3646,35 @@ window.__ModuleLoader__.load({
         }
         return h('div', { className: pageClass },
           h('style', null, CSS),
-          h('div', { className: 'dsh-link-tabbar' },
+          compact ? h('div', { className: 'dsh-link-sidebar-head' },
+            h('span', { className: 'dsh-link-sidebar-title' }, t('workspace.label')),
+            h('div', { className: 'dsh-link-sidebar-head-actions' },
+              h('button', { type: 'button', className: cls('dsh-link-sidebar-head-btn', searchOpen ? 'is-active' : ''), title: t('browser.search'), 'aria-label': t('browser.search'), onClick: () => setSearchOpen((value) => !value) }, h(SearchGlyph)),
+              sidebarArchivedCount > 0 ? h('button', { type: 'button', className: cls('dsh-link-sidebar-head-btn', showArchived ? 'is-active' : ''), title: showArchived ? t('browser.hideArchived') : t('browser.showArchived', { n: sidebarArchivedCount }), 'aria-label': showArchived ? t('browser.hideArchived') : t('browser.showArchived', { n: sidebarArchivedCount }), 'aria-pressed': showArchived, onClick: toggleArchived }, h(ArchiveGlyph)) : null,
+              h('button', { type: 'button', className: 'dsh-link-sidebar-head-btn', title: t('refresh'), 'aria-label': t('refresh'), onClick: () => void loadTree(activeTab.key, { force: true }) }, h(RefreshGlyph)),
+              h('button', { type: 'button', className: 'dsh-link-sidebar-head-btn', title: t('browser.new'), 'aria-label': t('browser.new'), onClick: () => openCreate('') }, h(PlusGlyph)),
+            ),
+          ) : null,
+          compact && searchOpen ? h('div', { className: 'dsh-link-sidebar-search' },
+            h('div', { className: 'dsh-link-browser-search' },
+              h('svg', { width: 13, height: 13, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true },
+                h('circle', { cx: 7, cy: 7, r: 4.5, stroke: 'currentColor', strokeWidth: 1.3 }),
+                h('path', { d: 'm10.5 10.5 3 3', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round' }),
+              ),
+              h('input', {
+                value: search,
+                placeholder: t('browser.search'),
+                'aria-label': t('browser.search'),
+                spellCheck: false,
+                autoFocus: true,
+                onChange: (event) => setSearch(event.target.value),
+              }),
+              search !== ''
+                ? h('button', { type: 'button', className: 'dsh-link-browser-search-clear', 'aria-label': t('close'), title: t('close'), onClick: () => setSearch('') }, h(CloseGlyph, { size: 11 }))
+                : null,
+            ),
+          ) : null,
+          compact && tabs.length <= 1 ? null : h('div', { className: 'dsh-link-tabbar' },
             h('div', { className: 'dsh-link-tablist', role: 'tablist' },
               ...tabs.map((tab) => h('button', {
                 key: tab.key,
