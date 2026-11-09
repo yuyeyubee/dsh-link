@@ -55,13 +55,16 @@ const sessions = [
     archived: false,
     agentPreset: 'standard',
     modelSelection: { provider: 'fake', model: 'fake-chat', reasoningEffort: 'medium' },
+    streamRevision: 0,
     records: [
+      { kind: 'turn-start', seq: 0, time: Date.now() - 610_000, turn: 1 },
       { kind: 'user', seq: 1, time: Date.now() - 600_000, text: '帮我看看构建为什么失败' },
-      { kind: 'assistant', seq: 2, time: Date.now() - 590_000, text: '我先看一下构建日志。' },
-      { kind: 'tool-call', seq: 3, time: Date.now() - 580_000, callId: 'c1', name: 'bash', args: '{"command":"npm run build"}' },
-      { kind: 'tool-result', seq: 4, time: Date.now() - 570_000, callId: 'c1', name: 'bash', isError: false, text: 'build failed: missing dependency' },
+      { kind: 'assistant', seq: 2, time: Date.now() - 590_000, turn: 1, step: 1, text: '我先看一下构建日志。' },
+      { kind: 'tool-call', seq: 3, time: Date.now() - 580_000, turn: 1, step: 1, callId: 'c1', name: 'bash', args: '{"command":"npm run build"}' },
+      { kind: 'tool-result', seq: 4, time: Date.now() - 570_000, turn: 1, step: 1, callId: 'c1', name: 'bash', isError: false, text: 'build failed: missing dependency' },
       { kind: 'turn-end', seq: 5, time: Date.now() - 560_000, turn: 1, reason: 'completed' },
-      { kind: 'assistant', seq: 6, time: Date.now() - 550_000, text: '缺少依赖，已补上并重新安装。' },
+      { kind: 'turn-start', seq: 6, time: Date.now() - 555_000, turn: 2 },
+      { kind: 'assistant', seq: 7, time: Date.now() - 550_000, turn: 2, step: 1, text: '缺少依赖，已补上并重新安装。' },
     ],
   },
 ]
@@ -93,6 +96,19 @@ function addRecord(session, record) {
     send({ t: 'event', rid, data: { t: 'record', record } })
     send({ t: 'event', rid, data: { t: 'state', state: stateOf(session) } })
   }
+}
+
+function pushStream(session, frame) {
+  for (const [rid, sub] of subscriptions) {
+    if (sub.sessionId !== session.sessionId) continue
+    send({ t: 'event', rid, data: { t: 'assistant-stream', frame } })
+  }
+}
+
+function nextTurn(session) {
+  let turn = 0
+  for (const record of session.records) if (Number.isFinite(record.turn)) turn = Math.max(turn, record.turn)
+  return turn + 1
 }
 
 function stateOf(session) {
@@ -157,6 +173,7 @@ const devices = {
       agentAvailable: true,
       blank: true,
       parentSessionId: null,
+      streamRevision: 0,
       records: [],
     }
     sessions.unshift(session)
@@ -181,19 +198,34 @@ const devices = {
   async 'session.prompt'(params) {
     const session = sessions.find((item) => item.sessionId === params.sessionId)
     if (!session) throw { code: 'not-found', message: 'no such session' }
-    const seq = ++seqCounter
-    addRecord(session, { kind: 'user', seq, time: Date.now(), text: params.text })
+    const turn = nextTurn(session)
+    addRecord(session, { kind: 'turn-start', seq: ++seqCounter, time: Date.now(), turn })
+    addRecord(session, { kind: 'user', seq: ++seqCounter, time: Date.now(), text: params.text })
     session.running = true
-    setTimeout(() => {
-      session.running = false
-      addRecord(session, {
-        kind: 'assistant',
-        seq: ++seqCounter,
-        time: Date.now(),
-        text: `模拟回复：收到「${String(params.text).slice(0, 80)}」。这是来自 ${name} 的演示响应。`,
-      })
-      addRecord(session, { kind: 'turn-end', seq: ++seqCounter, time: Date.now(), turn: 2, reason: 'completed' })
-    }, 1200)
+    const attemptId = `fake-attempt-${Date.now()}`
+    const reply = `模拟回复：收到「${String(params.text).slice(0, 80)}」。这是来自 ${name} 的逐字流式演示响应。`
+    const chunks = Array.from(reply)
+    const startRevision = ++session.streamRevision
+    pushStream(session, { type: 'start', attemptId, revision: startRevision, turn, step: 1 })
+    const stream = []
+    for (const [index, text] of chunks.entries()) {
+      const time = Date.now()
+      const chunk = { type: 'text-delta', text }
+      stream.push({ time, chunk })
+      pushStream(session, { type: 'chunk', attemptId, revision: ++session.streamRevision, index, time, chunk })
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+    const assistant = { kind: 'assistant', seq: ++seqCounter, time: Date.now(), turn, step: 1, text: reply }
+    addRecord(session, assistant)
+    pushStream(session, {
+      type: 'end',
+      attemptId,
+      revision: ++session.streamRevision,
+      index: chunks.length,
+      outcome: { kind: 'committed', eventType: 'assistant/message', seq: assistant.seq },
+    })
+    addRecord(session, { kind: 'turn-end', seq: ++seqCounter, time: Date.now(), turn, reason: 'completed' })
+    session.running = false
     return { accepted: true }
   },
   async 'session.cancel'() {
@@ -275,7 +307,17 @@ function startFollow(rid, params) {
   send({ t: 'reply', rid, ok: true, result: { stream: true } })
   subscriptions.set(rid, { sessionId: params.sessionId })
   send({ t: 'event', rid, data: { t: 'ready', sessionId: session.sessionId, title: session.title } })
-  send({ t: 'event', rid, data: { t: 'snapshot', records: session.records.slice(-60), cursor: session.records.at(-1)?.seq ?? -1, state: stateOf(session) } })
+  send({
+    t: 'event',
+    rid,
+    data: {
+      t: 'snapshot',
+      records: session.records.slice(-60),
+      cursor: session.records.at(-1)?.seq ?? -1,
+      state: stateOf(session),
+      assistantStream: { revision: session.streamRevision ?? 0 },
+    },
+  })
   send({ t: 'event', rid, data: { t: 'state', state: stateOf(session) } })
 }
 

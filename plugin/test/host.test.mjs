@@ -606,3 +606,22 @@ test('a new mirror of an archived remote Session is archived immediately', async
   assert.ok(registry.archived.has(entry.localId))
   assert.equal(entry.offlineHidden, undefined)
 })
+
+test('mirror keeps native tool events for older records without turn/step', () => {
+  const services = makeServices()
+  const host = makeHost(services)
+  const session = makeFakeSession('session-legacy')
+  services.liveSessions.set('session-legacy', session)
+  const entry = { localId: 'session-legacy', remoteSeq: -1, pendingUserTexts: [] }
+  host.appendMirrorRecords(entry, [
+    { kind: 'turn-start', seq: 1, time: 1, turn: 1 },
+    { kind: 'assistant', seq: 2, time: 2, text: '先跑一下' },
+    { kind: 'tool-call', seq: 3, time: 3, callId: 'c9', name: 'bash', args: '{"command":"pwd"}' },
+    { kind: 'tool-result', seq: 4, time: 4, callId: 'c9', name: 'bash', isError: false, text: '/tmp' },
+    { kind: 'turn-end', seq: 5, time: 5, turn: 1, reason: 'completed' },
+  ])
+  assert.deepEqual(session.events.map((event) => event.type), [
+    'turn/start', 'step/start', 'assistant/message', 'tool/call', 'tool/result', 'step/end', 'turn/end',
+  ])
+  assert.equal(session.events.find((event) => event.type === 'tool/call').data.step, 1)
+})

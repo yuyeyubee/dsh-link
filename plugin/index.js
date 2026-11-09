@@ -1868,7 +1868,11 @@ class LinkHost {
           appended.push(record)
           continue
         }
-        const coordinates = this.ensureMirrorStep(session, cursor, record.turn, record.step)
+        // Older Hosts omit turn/step on message and tool records; keep one
+        // inferred Step per Turn so these still render as native tool cards.
+        const remoteTurn = Number.isFinite(record.turn) ? record.turn : cursor.remoteTurn
+        const remoteStep = Number.isFinite(record.step) ? record.step : (cursor.remoteStep ?? 1)
+        const coordinates = this.ensureMirrorStep(session, cursor, remoteTurn, remoteStep)
         if (record.kind === 'assistant') {
           const content = []
           if (typeof record.reasoning === 'string' && record.reasoning.length > 0) content.push({ type: 'reasoning', text: record.reasoning })
