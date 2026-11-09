@@ -169,6 +169,83 @@ window.__ModuleLoader__.load({
         'settings.codeRequired': 'Paste a pairing code first.',
         'settings.peersCount': '{n} online',
         'newSession.failed': 'Could not create the session',
+        'browser.tabLocal': 'This computer',
+        'browser.search': 'Search projects and sessions',
+        'browser.clearSearch': 'Clear search',
+        'browser.new': 'New session',
+        'browser.newTitle': 'New session',
+        'browser.newTarget': 'On {name}',
+        'browser.project': 'Project',
+        'browser.projectAuto': 'Current or most recent project',
+        'browser.projectAutoRemote': 'Let the remote device choose',
+        'browser.projectPlaceholder': 'Project name',
+        'browser.sessionPlaceholder': 'Session title',
+        'browser.renameSession': 'Rename session',
+        'browser.renameWorkspace': 'Rename project',
+        'browser.archive': 'Archive',
+        'browser.unarchive': 'Unarchive',
+        'browser.archived': 'Archived',
+        'browser.showArchived': 'Show archived ({n})',
+        'browser.hideArchived': 'Hide archived',
+        'browser.copySessionId': 'Copy Session ID',
+        'browser.copyWorkspaceId': 'Copy project ID',
+        'browser.copied': 'Copied',
+        'browser.copyFailed': 'Copy failed. Select the text and copy it manually.',
+        'browser.more': 'More actions',
+        'browser.newInProject': 'New session here',
+        'browser.orphan': 'Ungrouped sessions',
+        'browser.noProjects': 'No projects on this device yet.',
+        'browser.noSessions': 'No sessions in this project.',
+        'browser.noMatches': 'No projects or sessions match your search.',
+        'browser.allArchived': 'All sessions are archived. Show archived sessions to open them.',
+        'browser.loadFailed': 'Could not load this workspace',
+        'browser.loading': 'Loading workspaces…',
+        'browser.projectCount': '{n} sessions',
+        'browser.archivedCount': '{n} archived',
+        'browser.mirrorFailed': 'Could not mirror this remote session',
+        'browser.openFailed': 'Could not open the session',
+        'browser.createFailed': 'Could not create the session',
+        'browser.renameFailed': 'Could not rename',
+        'browser.archiveFailed': 'Could not archive the session',
+        'browser.unarchiveFailed': 'Could not unarchive the session',
+        'browser.titleRequired': 'Enter a title first.',
+        'browser.unpaired': 'Not paired yet. You can browse this computer; pair in Settings to add remote computers.',
+        'browser.emptyTitle': 'No workspaces yet',
+        'browser.emptyHint': 'Create a session on this device to start a project, or open a project in DSH.',
+        'browser.archivedDone': 'Session archived.',
+        'browser.unarchivedDone': 'Session restored.',
+        'browser.renameDone': 'Renamed.',
+        'remoteSettings.title': 'Remote session settings',
+        'remoteSettings.open': 'Remote session settings',
+        'remoteSettings.loading': 'Reading the remote session…',
+        'remoteSettings.loadFailed': 'Could not read the remote session settings',
+        'remoteSettings.sessionTitle': 'Session title',
+        'remoteSettings.rename': 'Rename',
+        'remoteSettings.renamed': 'Title updated.',
+        'remoteSettings.renameFailed': 'Could not rename the session',
+        'remoteSettings.model': 'Model',
+        'remoteSettings.reasoning': 'Reasoning effort',
+        'remoteSettings.noReasoning': 'This model has no reasoning effort options.',
+        'remoteSettings.applyModel': 'Apply model',
+        'remoteSettings.modelSaved': 'Model settings updated.',
+        'remoteSettings.modelFailed': 'Could not update the model',
+        'remoteSettings.preset': 'Plugin / Agent preset',
+        'remoteSettings.applyPreset': 'Apply preset',
+        'remoteSettings.presetSaved': 'Preset updated.',
+        'remoteSettings.presetFailed': 'Could not update the preset',
+        'remoteSettings.defaultPreset': '(default)',
+        'remoteSettings.archive': 'Archive this session',
+        'remoteSettings.archived': 'Session archived.',
+        'remoteSettings.archiveFailed': 'Could not archive the session',
+        'remoteSettings.oldHost': 'The plugin on the other computer is too old. Update it there to use model and preset settings.',
+        'remoteSettings.catalogFailed': 'Could not load the model catalog',
+        'remoteSettings.presetsFailed': 'Could not load presets',
+        'remoteSettings.noModels': 'No models available.',
+        'remoteSettings.chooseModel': 'Choose a model…',
+        'remoteSettings.choosePreset': 'Choose a preset…',
+        'remoteSettings.noPresets': 'No presets available.',
+        'remoteSettings.remoteId': 'Remote Session ID',
+        'remoteSettings.localId': 'Local mirror Session ID',
         'mirror.badge': 'Remote',
         'mirror.header': 'Remote · {name}',
       },
@@ -310,6 +387,83 @@ window.__ModuleLoader__.load({
         'settings.codeRequired': '请先粘贴配对码。',
         'settings.peersCount': '{n} 台在线',
         'newSession.failed': '新建会话失败',
+        'browser.tabLocal': '本机',
+        'browser.search': '搜索项目或会话',
+        'browser.clearSearch': '清除搜索',
+        'browser.new': '新建会话',
+        'browser.newTitle': '新建会话',
+        'browser.newTarget': '在 {name} 上',
+        'browser.project': '项目',
+        'browser.projectAuto': '当前或最近的项目',
+        'browser.projectAutoRemote': '由远程电脑决定',
+        'browser.projectPlaceholder': '项目名称',
+        'browser.sessionPlaceholder': '会话标题',
+        'browser.renameSession': '重命名会话',
+        'browser.renameWorkspace': '重命名项目',
+        'browser.archive': '归档',
+        'browser.unarchive': '取消归档',
+        'browser.archived': '已归档',
+        'browser.showArchived': '显示已归档（{n}）',
+        'browser.hideArchived': '隐藏已归档',
+        'browser.copySessionId': '复制 Session ID',
+        'browser.copyWorkspaceId': '复制项目 ID',
+        'browser.copied': '已复制',
+        'browser.copyFailed': '复制失败，请手动选择文本复制。',
+        'browser.more': '更多操作',
+        'browser.newInProject': '在此项目新建会话',
+        'browser.orphan': '未归入项目的会话',
+        'browser.noProjects': '这台设备还没有项目。',
+        'browser.noSessions': '这个项目还没有会话。',
+        'browser.noMatches': '没有匹配的项目或会话。',
+        'browser.allArchived': '所有会话都已归档。显示已归档会话后才能打开。',
+        'browser.loadFailed': '无法加载这个工作区',
+        'browser.loading': '正在加载工作区…',
+        'browser.projectCount': '{n} 个会话',
+        'browser.archivedCount': '{n} 个已归档',
+        'browser.mirrorFailed': '无法镜像这个远程会话',
+        'browser.openFailed': '无法打开会话',
+        'browser.createFailed': '新建会话失败',
+        'browser.renameFailed': '重命名失败',
+        'browser.archiveFailed': '归档会话失败',
+        'browser.unarchiveFailed': '取消归档失败',
+        'browser.titleRequired': '请先输入标题。',
+        'browser.unpaired': '尚未配对。你可以浏览本机；在设置中配对后可加入远程电脑。',
+        'browser.emptyTitle': '还没有工作区',
+        'browser.emptyHint': '在这台设备上新建会话即可开始一个项目，或在 DSH 中打开已有项目。',
+        'browser.archivedDone': '会话已归档。',
+        'browser.unarchivedDone': '会话已恢复。',
+        'browser.renameDone': '已重命名。',
+        'remoteSettings.title': '远程会话设置',
+        'remoteSettings.open': '远程会话设置',
+        'remoteSettings.loading': '正在读取远程会话…',
+        'remoteSettings.loadFailed': '无法读取远程会话设置',
+        'remoteSettings.sessionTitle': '会话标题',
+        'remoteSettings.rename': '重命名',
+        'remoteSettings.renamed': '标题已更新。',
+        'remoteSettings.renameFailed': '重命名会话失败',
+        'remoteSettings.model': '模型',
+        'remoteSettings.reasoning': '思考强度',
+        'remoteSettings.noReasoning': '这个模型没有思考强度选项。',
+        'remoteSettings.applyModel': '应用模型',
+        'remoteSettings.modelSaved': '模型设置已更新。',
+        'remoteSettings.modelFailed': '更新模型失败',
+        'remoteSettings.preset': '插件 / Agent 预设',
+        'remoteSettings.applyPreset': '应用预设',
+        'remoteSettings.presetSaved': '预设已更新。',
+        'remoteSettings.presetFailed': '更新预设失败',
+        'remoteSettings.defaultPreset': '（默认）',
+        'remoteSettings.archive': '归档此会话',
+        'remoteSettings.archived': '会话已归档。',
+        'remoteSettings.archiveFailed': '归档会话失败',
+        'remoteSettings.oldHost': '另一台电脑的插件版本过旧，请更新后再使用模型和预设设置。',
+        'remoteSettings.catalogFailed': '读取模型目录失败',
+        'remoteSettings.presetsFailed': '读取预设失败',
+        'remoteSettings.noModels': '没有可用模型。',
+        'remoteSettings.chooseModel': '选择模型…',
+        'remoteSettings.choosePreset': '选择预设…',
+        'remoteSettings.noPresets': '没有可用预设。',
+        'remoteSettings.remoteId': '远程 Session ID',
+        'remoteSettings.localId': '本地镜像 Session ID',
         'mirror.badge': '远程',
         'mirror.header': '远程 · {name}',
       },
@@ -513,6 +667,91 @@ window.__ModuleLoader__.load({
 
       .dsh-link-remote-chip { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 999px; border: .5px solid var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); background: var(--dsw-alias-bg-layer-2); font-size: 10px; font-weight: 600; line-height: 1; letter-spacing: .02em; white-space: nowrap; flex: none; }
       .dsh-link-remote-chip.is-header { height: 22px; padding: 0 8px; font-size: 11px; font-weight: 500; }
+      .dsh-link-remote-header { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+      .dsh-link-native-gear { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--dsw-alias-label-tertiary); cursor: pointer; flex: none; }
+      .dsh-link-native-gear:not(:disabled):hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+      .dsh-link-native-gear:focus-visible { outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 1px; }
+      .dsh-link-native-gear.is-header { width: 26px; height: 26px; }
+      .dsh-link-tabbar { flex: none; display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-bottom: .5px solid var(--dsw-alias-border-l3); background: var(--dsw-alias-bg-layer-1); }
+      html[data-platform="darwin"] .dsh-link-tabbar { padding-top: calc(5px + var(--dsh-frame-top-clearance, 0px)); }
+      .dsh-link-tablist { flex: 1; min-width: 0; display: flex; align-items: center; gap: 3px; overflow-x: auto; scrollbar-width: none; }
+      .dsh-link-tablist::-webkit-scrollbar { display: none; }
+      .dsh-link-tab { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 31px; padding: 0 12px; border: .5px solid transparent; border-radius: 8px; background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 12.5px; white-space: nowrap; cursor: pointer; max-width: 220px; }
+      .dsh-link-tab:not(.is-active):hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+      .dsh-link-tab.is-active { border-color: var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); box-shadow: inset 0 -2px 0 var(--dsw-alias-state-business-primary); }
+      .dsh-link-tab:focus-visible { outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 1px; }
+      .dsh-link-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .dsh-link-tabbar-actions { flex: none; display: flex; align-items: center; gap: 5px; padding-left: 5px; }
+      .dsh-link-tabs-body { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+      .dsh-link-browser { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+      .dsh-link-browser-toolbar { flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: .5px solid var(--dsw-alias-border-l3); background: var(--dsw-alias-bg-base); flex-wrap: wrap; }
+      .dsh-link-browser-search { flex: 1 1 260px; max-width: 380px; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 9px; border: .5px solid var(--dsw-alias-border-l3); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-tertiary); }
+      .dsh-link-browser-search:focus-within { border-color: var(--dsw-alias-state-business-primary); }
+      .dsh-link-browser-search input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 12.5px; }
+      .dsh-link-browser-search input::placeholder { color: var(--dsw-alias-label-tertiary); }
+      .dsh-link-browser-search-clear { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--dsw-alias-label-tertiary); cursor: pointer; flex: none; }
+      .dsh-link-browser-search-clear:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+      .dsh-link-browser-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: wrap; }
+      .dsh-link-browser-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 16px 28px; }
+      .dsh-link-browser-inner { max-width: 980px; margin: 0 auto; }
+      .dsh-link-project { position: relative; margin-bottom: 8px; border: .5px solid var(--dsw-alias-border-l3); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); overflow: visible; }
+      .dsh-link-project-head { display: flex; align-items: center; gap: 2px; padding: 3px 6px; }
+      .dsh-link-project-toggle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 6px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+      .dsh-link-project-toggle:hover { background: var(--dsw-alias-interactive-bg-hover); }
+      .dsh-link-project-toggle:focus-visible { outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: -1px; }
+      .dsh-link-project-chevron { display: inline-flex; color: var(--dsw-alias-label-tertiary); flex: none; transition: transform .16s ease; }
+      .dsh-link-project-chevron.is-open { transform: rotate(90deg); }
+      .dsh-link-project-folder { display: inline-flex; color: var(--dsw-alias-label-secondary); flex: none; }
+      .dsh-link-project-info { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 1px; }
+      .dsh-link-project-title { font-size: 13px; font-weight: 600; line-height: 1.4; color: var(--dsw-alias-label-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .dsh-link-project-path { font-size: 11.5px; line-height: 1.4; color: var(--dsw-alias-label-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .dsh-link-project-count { flex: none; font-size: 11px; color: var(--dsw-alias-label-tertiary); white-space: nowrap; }
+      .dsh-link-project-actions { flex: none; display: flex; align-items: center; gap: 1px; opacity: 0; transition: opacity .12s; }
+      .dsh-link-project-head:hover .dsh-link-project-actions, .dsh-link-project-head:focus-within .dsh-link-project-actions, .dsh-link-project-actions.is-open { opacity: 1; }
+      .dsh-link-project-sessions { border-top: .5px solid var(--dsw-alias-border-l3); }
+      .dsh-link-project-note { margin: 0; padding: 10px 12px 12px 32px; font-size: 12px; line-height: 1.55; color: var(--dsw-alias-label-tertiary); }
+      .dsh-link-browser-session { position: relative; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 7px 8px 7px 30px; border-top: .5px solid var(--dsw-alias-border-l3); cursor: pointer; color: var(--dsw-alias-label-primary); }
+      .dsh-link-browser-session:first-child { border-top: 0; }
+      .dsh-link-browser-session:hover { background: var(--dsw-alias-interactive-bg-hover); }
+      .dsh-link-browser-session:focus-visible { outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: -2px; }
+      .dsh-link-browser-session.is-archived { opacity: .64; }
+      .dsh-link-browser-session.is-busy { opacity: .7; cursor: progress; }
+      .dsh-link-browser-session-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+      .dsh-link-browser-session-title { font-size: 12.5px; line-height: 1.45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .dsh-link-browser-session-meta { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 11px; line-height: 1.4; color: var(--dsw-alias-label-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .dsh-link-browser-session-meta span { overflow: hidden; text-overflow: ellipsis; }
+      .dsh-link-browser-session-badges { display: flex; align-items: center; gap: 4px; flex: none; }
+      .dsh-link-browser-session-actions { flex: none; display: flex; align-items: center; gap: 1px; opacity: 0; transition: opacity .12s; }
+      .dsh-link-browser-session:hover .dsh-link-browser-session-actions, .dsh-link-browser-session:focus-within .dsh-link-browser-session-actions, .dsh-link-browser-session-actions.is-open { opacity: 1; }
+      .dsh-link-browser-menu { position: absolute; top: calc(100% - 2px); right: 8px; z-index: 60; display: flex; flex-direction: column; min-width: 190px; padding: 4px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-2); box-shadow: var(--dsw-elevation-prominent, 0 10px 30px rgba(0, 0, 0, .22)); }
+      .dsh-link-browser-menu.is-project { top: 32px; right: 34px; }
+      .dsh-link-browser-menu-item { display: flex; align-items: center; gap: 7px; width: 100%; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 12.5px; text-align: left; white-space: nowrap; cursor: pointer; }
+      .dsh-link-browser-menu-item:hover { background: var(--dsw-alias-interactive-bg-hover); }
+      .dsh-link-browser-menu-item.is-danger { color: var(--dsw-alias-state-error-primary); }
+      .dsh-link-browser-menu-sep { height: .5px; margin: 3px 6px; background: var(--dsw-alias-border-l3); }
+      .dsh-link-browser-empty { flex: 1; min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 40px 20px; text-align: center; color: var(--dsw-alias-label-tertiary); }
+      .dsh-link-browser-empty-icon { display: inline-flex; color: var(--dsw-alias-label-tertiary); margin-bottom: 2px; }
+      .dsh-link-browser-empty-title { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.4; color: var(--dsw-alias-label-primary); }
+      .dsh-link-browser-empty-hint { margin: 0; max-width: 440px; font-size: 12.5px; line-height: 1.65; color: var(--dsw-alias-label-secondary); }
+      .dsh-link-browser-empty-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
+      .dsh-link-toast { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 1300; max-width: min(520px, calc(100% - 32px)); padding: 9px 14px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); box-shadow: var(--dsw-elevation-prominent, 0 10px 30px rgba(0, 0, 0, .22)); font-size: 12.5px; line-height: 1.5; }
+      .dsh-link-toast.is-error { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
+      .dsh-link-toast.is-ok { border-color: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-state-success-primary); }
+      .dsh-link-remote-panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+      .dsh-link-remote-id { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; color: var(--dsw-alias-label-tertiary); overflow-wrap: anywhere; }
+      @media (hover: none) {
+        .dsh-link-project-actions, .dsh-link-browser-session-actions { opacity: 1; }
+      }
+      @media (max-width: 700px) {
+        .dsh-link-tabbar { padding-left: 8px; padding-right: 8px; }
+        .dsh-link-browser-toolbar { padding: 9px 10px; }
+        .dsh-link-browser-search { flex-basis: 100%; max-width: none; }
+        .dsh-link-browser-actions { margin-left: 0; width: 100%; justify-content: flex-end; }
+        .dsh-link-browser-scroll { padding: 10px 10px 24px; }
+        .dsh-link-browser-session { padding-left: 14px; }
+        .dsh-link-project-note { padding-left: 14px; }
+        .dsh-link-browser-menu { right: 4px; }
+      }
     `
 
     /* --------------------------------------------------------------------- */
@@ -605,6 +844,56 @@ window.__ModuleLoader__.load({
         const payload = await postOperation({ op: 'rename', deviceId, sessionId, title })
         return typeof payload.title === 'string' ? payload.title : title
       },
+      async tree(deviceId) {
+        const payload = await postOperation({
+          op: 'tree',
+          ...(typeof deviceId === 'string' && deviceId !== '' ? { deviceId } : {}),
+        })
+        return payload.tree
+      },
+      async ensureMirror(deviceId, sessionId) {
+        return postOperation({ op: 'ensureMirror', deviceId, sessionId })
+      },
+      async createRemote(deviceId, workspaceId, cwd) {
+        return postOperation({
+          op: 'create',
+          deviceId,
+          ...(typeof workspaceId === 'string' && workspaceId !== '' ? { workspaceId } : {}),
+          ...(typeof cwd === 'string' && cwd.trim() !== '' ? { cwd: cwd.trim() } : {}),
+        })
+      },
+      async archive(deviceId, sessionId, archived) {
+        return postOperation({
+          op: 'archive',
+          ...(typeof deviceId === 'string' && deviceId !== '' ? { deviceId } : {}),
+          sessionId,
+          archived: archived === true,
+        })
+      },
+      async renameWorkspace(deviceId, workspaceId, title) {
+        return postOperation({ op: 'renameWorkspace', deviceId, workspaceId, title })
+      },
+      async localRenameSession(sessionId, title) {
+        return postOperation({ op: 'localRenameSession', sessionId, title })
+      },
+      async localRenameWorkspace(workspaceId, title) {
+        return postOperation({ op: 'localRenameWorkspace', workspaceId, title })
+      },
+      async models(deviceId) {
+        return postOperation({ op: 'models', deviceId })
+      },
+      async selectModel(deviceId, sessionId, selection) {
+        return postOperation({ op: 'selectModel', deviceId, sessionId, selection })
+      },
+      async sessionInfo(deviceId, sessionId) {
+        return postOperation({ op: 'sessionInfo', deviceId, sessionId })
+      },
+      async presets(deviceId) {
+        return postOperation({ op: 'presets', deviceId })
+      },
+      async selectPreset(deviceId, sessionId, agentPreset) {
+        return postOperation({ op: 'selectPreset', deviceId, sessionId, agentPreset })
+      },
       async mirrors() {
         const payload = await postOperation({ op: 'mirrors' })
         return Array.isArray(payload.items) ? payload.items.filter((item) => item !== null && typeof item === 'object' && typeof item.localSessionId === 'string') : []
@@ -650,6 +939,39 @@ window.__ModuleLoader__.load({
       return mirrorStore.items.find((item) => item.localSessionId === sessionId)
     }
 
+    /** Shared open/closed state for the remote-session settings modal. */
+    const remoteSettingsStore = { target: null, listeners: new Set() }
+
+    function openRemoteSettings(mirror) {
+      if (mirror === null || typeof mirror !== 'object') return
+      remoteSettingsStore.target = {
+        deviceId: typeof mirror.deviceId === 'string' ? mirror.deviceId : '',
+        deviceName: typeof mirror.deviceName === 'string' ? mirror.deviceName : '',
+        remoteSessionId: typeof mirror.remoteSessionId === 'string' ? mirror.remoteSessionId : '',
+        localSessionId: typeof mirror.localSessionId === 'string' ? mirror.localSessionId : '',
+        title: typeof mirror.title === 'string' ? mirror.title : '',
+      }
+      for (const listener of remoteSettingsStore.listeners) listener()
+    }
+
+    function closeRemoteSettings() {
+      remoteSettingsStore.target = null
+      for (const listener of remoteSettingsStore.listeners) listener()
+    }
+
+    function useRemoteSettingsTarget() {
+      const [version, bump] = React.useState(0)
+      React.useEffect(() => {
+        const listener = () => bump((value) => value + 1)
+        remoteSettingsStore.listeners.add(listener)
+        return () => {
+          remoteSettingsStore.listeners.delete(listener)
+        }
+      }, [])
+      void version
+      return remoteSettingsStore.target
+    }
+
     /** Sidebar trailing badge for a mirrored remote Session. */
     function createRemoteBadge(t) {
       return function RemoteSessionBadge({ sessionId }) {
@@ -662,7 +984,7 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** Conversation header chip; also opens/closes the live remote watch. */
+    /** Conversation header chip plus the remote-settings gear; also owns live watch. */
     function createRemoteHeaderBadge(t) {
       return function RemoteSessionHeaderBadge({ sessionId }) {
         const mirror = useMirrorItem(sessionId)
@@ -674,10 +996,42 @@ window.__ModuleLoader__.load({
           }
         }, [sessionId, mirror === undefined])
         if (mirror === undefined) return null
-        return React.createElement('span', {
-          className: 'dsh-link-remote-chip is-header',
-          title: mirror.deviceName ?? '',
-        }, t('mirror.header', { name: mirror.deviceName ?? '' }))
+        return React.createElement(React.Fragment, null,
+          React.createElement('span', {
+            className: 'dsh-link-remote-chip is-header',
+            title: mirror.deviceName ?? '',
+          }, t('mirror.header', { name: mirror.deviceName ?? '' })),
+          React.createElement('button', {
+            type: 'button',
+            className: 'dsh-link-native-gear is-header',
+            title: t('remoteSettings.open'),
+            'aria-label': t('remoteSettings.open'),
+            onClick: (event) => {
+              event.stopPropagation()
+              openRemoteSettings({ ...mirror, localSessionId: sessionId })
+            },
+            onPointerDown: (event) => event.stopPropagation(),
+          }, React.createElement(SettingsGlyph, { size: 14 })),
+        )
+      }
+    }
+
+    /** Hover gear on a mirrored native sidebar row. */
+    function createRemoteSettingsRowAction(t) {
+      return function RemoteSettingsRowAction({ sessionId }) {
+        const mirror = useMirrorItem(sessionId)
+        if (mirror === undefined) return null
+        return React.createElement('button', {
+          type: 'button',
+          className: 'dsh-link-native-gear',
+          title: t('remoteSettings.open'),
+          'aria-label': t('remoteSettings.open'),
+          onClick: (event) => {
+            event.stopPropagation()
+            openRemoteSettings({ ...mirror, localSessionId: sessionId })
+          },
+          onPointerDown: (event) => event.stopPropagation(),
+        }, React.createElement(SettingsGlyph, { size: 13 }))
       }
     }
 
@@ -689,6 +1043,46 @@ window.__ModuleLoader__.load({
         running: value.running === true,
         queueCount: typeof value.queueCount === 'number' && Number.isFinite(value.queueCount) ? value.queueCount : 0,
         pendingInput: Array.isArray(value.pendingInput) ? value.pendingInput.filter((item) => typeof item === 'string') : [],
+      }
+    }
+
+    /** Normalize one workspace tree (local or remote) into the shape the browser renders. */
+    function normalizeTree(value) {
+      const source = value !== null && typeof value === 'object' ? value : {}
+      const sessionOf = (item) => {
+        if (item === null || typeof item !== 'object' || typeof item.sessionId !== 'string' || item.sessionId === '') return null
+        return {
+          sessionId: item.sessionId,
+          title: typeof item.title === 'string' ? item.title : '',
+          cwd: typeof item.cwd === 'string' ? item.cwd : '',
+          updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : 0,
+          running: item.running === true,
+          active: item.active === true,
+          agentAvailable: item.agentAvailable !== false,
+          blank: item.blank === true,
+          parentSessionId: typeof item.parentSessionId === 'string' ? item.parentSessionId : null,
+          workspaceId: typeof item.workspaceId === 'string' ? item.workspaceId : '',
+          localSessionId: typeof item.localSessionId === 'string' ? item.localSessionId : '',
+        }
+      }
+      const workspaces = Array.isArray(source.workspaces)
+        ? source.workspaces
+          .filter((workspace) => workspace !== null && typeof workspace === 'object' && typeof workspace.workspaceId === 'string' && workspace.workspaceId !== '')
+          .map((workspace) => ({
+            workspaceId: workspace.workspaceId,
+            title: typeof workspace.title === 'string' ? workspace.title : '',
+            path: typeof workspace.path === 'string' ? workspace.path : '',
+            localWorkspaceId: typeof workspace.localWorkspaceId === 'string' ? workspace.localWorkspaceId : '',
+            sessions: Array.isArray(workspace.sessions) ? workspace.sessions.map(sessionOf).filter((item) => item !== null) : [],
+          }))
+        : []
+      const orphanSessions = Array.isArray(source.orphanSessions) ? source.orphanSessions.map(sessionOf).filter((item) => item !== null) : []
+      const ids = (list) => Array.isArray(list) ? list.filter((item) => typeof item === 'string' && item !== '') : []
+      return {
+        workspaces,
+        orphanSessions,
+        archivedSessionIds: ids(source.archivedSessionIds),
+        pinnedSessionIds: ids(source.pinnedSessionIds),
       }
     }
 
@@ -892,6 +1286,22 @@ window.__ModuleLoader__.load({
     function CloseGlyph({ size = 13 }) {
       return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true, focusable: 'false', style: { display: 'block' } },
         h('path', { d: 'M3.6 3.6l8.8 8.8M12.4 3.6 3.6 12.4', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round' }),
+      )
+    }
+
+    /** Folder glyph for workspace project rows. */
+    function FolderGlyph({ size = 14 }) {
+      return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true, focusable: 'false', style: { display: 'block' } },
+        h('path', { d: 'M1.8 4.2c0-.7.6-1.3 1.3-1.3h3l1.5 1.6h5.3c.7 0 1.3.6 1.3 1.3v6.3c0 .7-.6 1.3-1.3 1.3H3.1c-.7 0-1.3-.6-1.3-1.3V4.2Z', stroke: 'currentColor', strokeWidth: 1.2, strokeLinejoin: 'round' }),
+      )
+    }
+
+    /** Three-dot overflow glyph. */
+    function MoreGlyph({ size = 14 }) {
+      return h('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true, focusable: 'false', style: { display: 'block' } },
+        h('circle', { cx: 3.4, cy: 8, r: 1.1, fill: 'currentColor' }),
+        h('circle', { cx: 8, cy: 8, r: 1.1, fill: 'currentColor' }),
+        h('circle', { cx: 12.6, cy: 8, r: 1.1, fill: 'currentColor' }),
       )
     }
 
@@ -1589,6 +1999,429 @@ window.__ModuleLoader__.load({
     }
 
     /* --------------------------------------------------------------------- */
+    /* Remote session settings                                                */
+    /* --------------------------------------------------------------------- */
+
+    /** Whether a failed remote call looks like an older Host without the method. */
+    function isUnknownMethodError(error) {
+      const text = errorText(error)
+      return /未知方法|unknown method|unknown-method|method not found|not implemented/iu.test(text)
+    }
+
+    /** Remote Session settings: title, model, reasoning effort, preset and archive. */
+    function RemoteSettingsPanel({ ctx, t, target }) {
+      const [phase, setPhase] = React.useState('loading')
+      const [error, setError] = React.useState('')
+      const [notice, setNotice] = React.useState('')
+      const [session, setSession] = React.useState(null)
+      const [catalog, setCatalog] = React.useState(null)
+      const [presetRoster, setPresetRoster] = React.useState([])
+      const [catalogError, setCatalogError] = React.useState('')
+      const [presetError, setPresetError] = React.useState('')
+      const [title, setTitle] = React.useState(target.title || '')
+      const [selection, setSelection] = React.useState({ provider: '', model: '', reasoningEffort: '' })
+      const [preset, setPreset] = React.useState('')
+      const [busy, setBusy] = React.useState('')
+      const [reloadKey, setReloadKey] = React.useState(0)
+      const aliveRef = React.useRef(true)
+      const noticeTimer = React.useRef(null)
+
+      React.useEffect(() => () => {
+        aliveRef.current = false
+        if (noticeTimer.current !== null) clearTimeout(noticeTimer.current)
+      }, [])
+
+      const showNotice = React.useCallback((text) => {
+        setNotice(text)
+        setError('')
+        if (noticeTimer.current !== null) clearTimeout(noticeTimer.current)
+        noticeTimer.current = window.setTimeout(() => {
+          noticeTimer.current = null
+          if (aliveRef.current) setNotice('')
+        }, 4000)
+      }, [])
+
+      React.useEffect(() => {
+        let cancelled = false
+        setPhase('loading')
+        setError('')
+        setNotice('')
+        setCatalogError('')
+        setPresetError('')
+        const load = async () => {
+          let info
+          try {
+            info = await api.sessionInfo(target.deviceId, target.remoteSessionId)
+          } catch (failure) {
+            if (cancelled) return
+            setError(errorText(failure))
+            setPhase('error')
+            return
+          }
+          if (cancelled) return
+          const value = info !== null && typeof info === 'object' && info.session !== null && typeof info.session === 'object' ? info.session : null
+          setSession(value)
+          const initialTitle = value !== null && typeof value.title === 'string' && value.title !== '' ? value.title : (target.title || '')
+          setTitle(initialTitle)
+          const current = value !== null && value.modelSelection !== null && typeof value.modelSelection === 'object' ? value.modelSelection : null
+          setSelection({
+            provider: current !== null && typeof current.provider === 'string' ? current.provider : '',
+            model: current !== null && typeof current.model === 'string' ? current.model : '',
+            reasoningEffort: current !== null && typeof current.reasoningEffort === 'string' ? current.reasoningEffort : '',
+          })
+          setPreset(value !== null && typeof value.agentPreset === 'string' ? value.agentPreset : '')
+          setPhase('ready')
+
+          const [modelsResult, presetsResult] = await Promise.allSettled([
+            api.models(target.deviceId),
+            api.presets(target.deviceId),
+          ])
+          if (cancelled) return
+          if (modelsResult.status === 'fulfilled') {
+            const payload = modelsResult.value
+            setCatalog(payload !== null && typeof payload === 'object' && payload.catalog !== null && typeof payload.catalog === 'object' ? payload.catalog : null)
+            setCatalogError('')
+          } else {
+            setCatalog(null)
+            setCatalogError(errorText(modelsResult.reason))
+          }
+          if (presetsResult.status === 'fulfilled') {
+            const payload = presetsResult.value
+            const roster = payload !== null && typeof payload === 'object' && payload.roster !== null && typeof payload.roster === 'object' ? payload.roster : null
+            setPresetRoster(roster !== null && Array.isArray(roster.presets) ? roster.presets.filter((item) => item !== null && typeof item === 'object' && typeof item.id === 'string') : [])
+            setPresetError('')
+          } else {
+            setPresetRoster([])
+            setPresetError(errorText(presetsResult.reason))
+          }
+        }
+        void load()
+        return () => {
+          cancelled = true
+        }
+      }, [target.deviceId, target.remoteSessionId, reloadKey])
+
+      const modelEntries = []
+      const groups = catalog !== null && Array.isArray(catalog.groups) ? catalog.groups : []
+      for (const group of groups) {
+        if (group === null || typeof group !== 'object' || typeof group.id !== 'string') continue
+        const models = Array.isArray(group.models) ? group.models : []
+        for (const model of models) {
+          if (model === null || typeof model !== 'object' || typeof model.id !== 'string') continue
+          const reasoning = model.reasoning !== null && typeof model.reasoning === 'object' ? model.reasoning : null
+          const efforts = reasoning !== null && Array.isArray(reasoning.efforts)
+            ? reasoning.efforts.filter((effort) => effort !== null && typeof effort === 'object' && typeof effort.id === 'string')
+            : []
+          modelEntries.push({
+            provider: group.id,
+            providerName: typeof group.name === 'string' && group.name !== '' ? group.name : group.id,
+            model: model.id,
+            modelName: typeof model.name === 'string' && model.name !== '' ? model.name : model.id,
+            efforts,
+            defaultEffort: reasoning !== null && typeof reasoning.defaultEffort === 'string' ? reasoning.defaultEffort : '',
+          })
+        }
+      }
+      if (selection.provider !== '' && selection.model !== '' && !modelEntries.some((entry) => entry.provider === selection.provider && entry.model === selection.model)) {
+        modelEntries.unshift({
+          provider: selection.provider,
+          providerName: selection.provider,
+          model: selection.model,
+          modelName: selection.model,
+          efforts: [],
+          defaultEffort: '',
+        })
+      }
+      const selectedModel = modelEntries.find((entry) => entry.provider === selection.provider && entry.model === selection.model) ?? null
+      const effortOptions = selectedModel === null ? [] : selectedModel.efforts
+      const presetList = presetRoster.slice().sort((left, right) => (Number(left.order) || 0) - (Number(right.order) || 0))
+      if (preset !== '' && !presetList.some((item) => item.id === preset)) presetList.unshift({ id: preset, isDefault: false })
+      const oldHost = isUnknownMethodError(catalogError) || isUnknownMethodError(presetError) || (phase === 'error' && isUnknownMethodError(error))
+
+      React.useEffect(() => {
+        if (phase !== 'ready') return
+        const entry = modelEntries.find((item) => item.provider === selection.provider && item.model === selection.model)
+        if (entry === undefined) return
+        if (entry.efforts.length === 0) {
+          if (selection.reasoningEffort !== '') setSelection((previous) => ({ ...previous, reasoningEffort: '' }))
+          return
+        }
+        if (entry.efforts.some((effort) => effort.id === selection.reasoningEffort)) return
+        const fallback = entry.defaultEffort !== '' && entry.efforts.some((effort) => effort.id === entry.defaultEffort)
+          ? entry.defaultEffort
+          : entry.efforts[0].id
+        setSelection((previous) => previous.reasoningEffort === fallback ? previous : { ...previous, reasoningEffort: fallback })
+      }, [phase, catalog, selection.provider, selection.model, selection.reasoningEffort])
+
+      const renameSession = async () => {
+        const next = title.trim()
+        if (next === '') {
+          setError(t('browser.titleRequired'))
+          return
+        }
+        if (busy !== '') return
+        setBusy('rename')
+        setError('')
+        try {
+          await api.rename(target.deviceId, target.remoteSessionId, next)
+          if (!aliveRef.current) return
+          setTitle(next)
+          setSession((previous) => previous === null ? previous : { ...previous, title: next })
+          showNotice(t('remoteSettings.renamed'))
+          void refreshMirrors(true)
+        } catch (failure) {
+          if (aliveRef.current) setError(`${t('remoteSettings.renameFailed')}: ${errorText(failure)}`)
+        } finally {
+          if (aliveRef.current) setBusy('')
+        }
+      }
+
+      const applyModel = async () => {
+        if (selection.provider === '' || selection.model === '') {
+          setError(modelEntries.length === 0 ? t('remoteSettings.noModels') : t('remoteSettings.chooseModel'))
+          return
+        }
+        if (busy !== '') return
+        setBusy('model')
+        setError('')
+        const next = {
+          provider: selection.provider,
+          model: selection.model,
+          ...(selection.reasoningEffort !== '' && effortOptions.length > 0 ? { reasoningEffort: selection.reasoningEffort } : {}),
+        }
+        try {
+          await api.selectModel(target.deviceId, target.remoteSessionId, next)
+          if (!aliveRef.current) return
+          setSelection({
+            provider: next.provider,
+            model: next.model,
+            reasoningEffort: typeof next.reasoningEffort === 'string' ? next.reasoningEffort : '',
+          })
+          setSession((previous) => previous === null ? previous : { ...previous, modelSelection: next })
+          showNotice(t('remoteSettings.modelSaved'))
+        } catch (failure) {
+          if (aliveRef.current) setError(`${t('remoteSettings.modelFailed')}: ${errorText(failure)}`)
+        } finally {
+          if (aliveRef.current) setBusy('')
+        }
+      }
+
+      const applyPreset = async () => {
+        if (preset === '') {
+          setError(presetList.length === 0 ? t('remoteSettings.noPresets') : t('remoteSettings.noPresets'))
+          return
+        }
+        if (busy !== '') return
+        setBusy('preset')
+        setError('')
+        try {
+          await api.selectPreset(target.deviceId, target.remoteSessionId, preset)
+          if (!aliveRef.current) return
+          setSession((previous) => previous === null ? previous : { ...previous, agentPreset: preset })
+          showNotice(t('remoteSettings.presetSaved'))
+        } catch (failure) {
+          if (aliveRef.current) setError(`${t('remoteSettings.presetFailed')}: ${errorText(failure)}`)
+        } finally {
+          if (aliveRef.current) setBusy('')
+        }
+      }
+
+      const archiveSession = async () => {
+        if (busy !== '') return
+        setBusy('archive')
+        setError('')
+        try {
+          await api.archive(target.deviceId, target.remoteSessionId, true)
+          if (!aliveRef.current) return
+          showNotice(t('remoteSettings.archived'))
+          void refreshMirrors(true)
+        } catch (failure) {
+          if (aliveRef.current) setError(`${t('remoteSettings.archiveFailed')}: ${errorText(failure)}`)
+        } finally {
+          if (aliveRef.current) setBusy('')
+        }
+      }
+
+      const currentModelValue = selection.provider !== '' && selection.model !== '' ? JSON.stringify([selection.provider, selection.model]) : ''
+
+      const children = []
+      if (phase === 'loading') {
+        children.push(h('p', { className: 'dsh-link-hint', key: 'loading' }, t('remoteSettings.loading')))
+      } else if (phase === 'error') {
+        children.push(h('div', { className: 'dsh-link-banner is-error', role: 'alert', key: 'loadError' },
+          h('span', null, error !== '' ? `${t('remoteSettings.loadFailed')}: ${error}` : t('remoteSettings.loadFailed')),
+          h('button', { type: 'button', className: 'dsh-link-btn is-small', onClick: () => setReloadKey((value) => value + 1) }, t('retry')),
+        ))
+        if (isUnknownMethodError(error)) children.push(h('p', { className: 'dsh-link-hint', key: 'oldHost' }, t('remoteSettings.oldHost')))
+      } else {
+        children.push(h('div', { className: 'dsh-link-card', key: 'meta' },
+          h('h3', { className: 'dsh-link-card-title' }, target.deviceName !== '' ? target.deviceName : target.deviceId),
+          h('div', { className: 'dsh-link-rows' },
+            h('div', { className: 'dsh-link-row' },
+              h('span', { className: 'dsh-link-row-key' }, t('remoteSettings.remoteId')),
+              h('span', { className: 'dsh-link-row-value is-mono' }, target.remoteSessionId),
+            ),
+            target.localSessionId !== '' ? h('div', { className: 'dsh-link-row' },
+              h('span', { className: 'dsh-link-row-key' }, t('remoteSettings.localId')),
+              h('span', { className: 'dsh-link-row-value is-mono' }, target.localSessionId),
+            ) : null,
+            session !== null && typeof session.modelSelection === 'object' && session.modelSelection !== null
+              ? h('div', { className: 'dsh-link-row' },
+                  h('span', { className: 'dsh-link-row-key' }, t('remoteSettings.model')),
+                  h('span', { className: 'dsh-link-row-value' }, `${session.modelSelection.provider ?? ''} / ${session.modelSelection.model ?? ''}${session.modelSelection.reasoningEffort ? ` · ${session.modelSelection.reasoningEffort}` : ''}`),
+                )
+              : null,
+          ),
+        ))
+
+        children.push(h('div', { className: 'dsh-link-card', key: 'title' },
+          h('h3', { className: 'dsh-link-card-title' }, t('remoteSettings.sessionTitle')),
+          h('div', { className: 'dsh-link-form' },
+            h('input', {
+              className: 'dsh-link-input',
+              value: title,
+              placeholder: t('browser.sessionPlaceholder'),
+              spellCheck: false,
+              onChange: (event) => setTitle(event.target.value),
+              onKeyDown: (event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  void renameSession()
+                }
+              },
+            }),
+            h('div', { className: 'dsh-link-form-actions' },
+              h('button', { type: 'button', className: 'dsh-link-btn is-primary', disabled: busy !== '', onClick: () => void renameSession() }, busy === 'rename' ? t('saving') : t('remoteSettings.rename')),
+            ),
+          ),
+        ))
+
+        if (catalogError !== '') {
+          children.push(h('div', { className: 'dsh-link-banner is-error', role: 'alert', key: 'catalogError' }, `${t('remoteSettings.catalogFailed')}: ${catalogError}`))
+        }
+        if (presetError !== '') {
+          children.push(h('div', { className: 'dsh-link-banner is-error', role: 'alert', key: 'presetError' }, `${t('remoteSettings.presetsFailed')}: ${presetError}`))
+        }
+        if (oldHost) {
+          children.push(h('p', { className: 'dsh-link-hint', key: 'oldHostHint' }, t('remoteSettings.oldHost')))
+        }
+
+        children.push(h('div', { className: 'dsh-link-card', key: 'model' },
+          h('h3', { className: 'dsh-link-card-title' }, t('remoteSettings.model')),
+          h('div', { className: 'dsh-link-form' },
+            modelEntries.length === 0
+              ? h('p', { className: 'dsh-link-hint' }, t('remoteSettings.noModels'))
+              : h('div', { className: 'dsh-link-field' },
+                  h('label', { className: 'dsh-link-field-label', htmlFor: 'dsh-link-remote-model' }, t('remoteSettings.model')),
+                  h('select', {
+                    id: 'dsh-link-remote-model',
+                    className: 'dsh-link-select',
+                    value: currentModelValue,
+                    onChange: (event) => {
+                      let next
+                      try {
+                        next = JSON.parse(event.target.value)
+                      } catch {
+                        return
+                      }
+                      if (!Array.isArray(next) || next.length !== 2) return
+                      const entry = modelEntries.find((item) => item.provider === next[0] && item.model === next[1])
+                      const effort = entry !== null && entry !== undefined && entry.efforts.some((item) => item.id === selection.reasoningEffort)
+                        ? selection.reasoningEffort
+                        : (entry !== null && entry !== undefined ? (entry.defaultEffort || (entry.efforts[0] !== undefined ? entry.efforts[0].id : '')) : '')
+                      setSelection({ provider: String(next[0]), model: String(next[1]), reasoningEffort: effort })
+                    },
+                  },
+                    selectedModel === null ? h('option', { value: '' }, t('remoteSettings.chooseModel')) : null,
+                    ...groups.map((group) => h('optgroup', { key: group.id, label: typeof group.name === 'string' && group.name !== '' ? group.name : group.id },
+                      ...(Array.isArray(group.models) ? group.models : [])
+                        .filter((model) => model !== null && typeof model === 'object' && typeof model.id === 'string')
+                        .map((model) => h('option', { key: `${group.id}:${model.id}`, value: JSON.stringify([group.id, model.id]) },
+                          typeof model.name === 'string' && model.name !== '' ? model.name : model.id,
+                        )),
+                    )),
+                  ),
+                ),
+            effortOptions.length === 0
+              ? h('p', { className: 'dsh-link-hint' }, t('remoteSettings.noReasoning'))
+              : h('div', { className: 'dsh-link-field' },
+                  h('label', { className: 'dsh-link-field-label', htmlFor: 'dsh-link-remote-effort' }, t('remoteSettings.reasoning')),
+                  h('select', {
+                    id: 'dsh-link-remote-effort',
+                    className: 'dsh-link-select',
+                    value: selection.reasoningEffort,
+                    onChange: (event) => setSelection((previous) => ({ ...previous, reasoningEffort: event.target.value })),
+                  },
+                    ...effortOptions.map((effort) => h('option', { key: effort.id, value: effort.id, title: typeof effort.description === 'string' ? effort.description : undefined }, typeof effort.name === 'string' && effort.name !== '' ? effort.name : effort.id)),
+                  ),
+                ),
+            h('div', { className: 'dsh-link-form-actions' },
+              h('button', { type: 'button', className: 'dsh-link-btn is-primary', disabled: busy !== '' || modelEntries.length === 0 || selection.provider === '' || selection.model === '', onClick: () => void applyModel() }, busy === 'model' ? t('saving') : t('remoteSettings.applyModel')),
+            ),
+          ),
+        ))
+
+        children.push(h('div', { className: 'dsh-link-card', key: 'preset' },
+          h('h3', { className: 'dsh-link-card-title' }, t('remoteSettings.preset')),
+          h('div', { className: 'dsh-link-form' },
+            presetList.length === 0
+              ? h('p', { className: 'dsh-link-hint' }, t('remoteSettings.noPresets'))
+              : h('div', { className: 'dsh-link-field' },
+                  h('label', { className: 'dsh-link-field-label', htmlFor: 'dsh-link-remote-preset' }, t('remoteSettings.preset')),
+                  h('select', {
+                    id: 'dsh-link-remote-preset',
+                    className: 'dsh-link-select',
+                    value: preset,
+                    onChange: (event) => setPreset(event.target.value),
+                  },
+                    preset === '' ? h('option', { value: '' }, t('remoteSettings.choosePreset')) : null,
+                    ...presetList.map((item) => h('option', { key: item.id, value: item.id },
+                      `${item.id}${item.isDefault === true ? ` ${t('remoteSettings.defaultPreset')}` : ''}`,
+                    )),
+                  ),
+                ),
+            h('div', { className: 'dsh-link-form-actions' },
+              h('button', { type: 'button', className: 'dsh-link-btn is-primary', disabled: busy !== '' || presetList.length === 0 || preset === '', onClick: () => void applyPreset() }, busy === 'preset' ? t('saving') : t('remoteSettings.applyPreset')),
+            ),
+          ),
+        ))
+
+        children.push(h('div', { className: 'dsh-link-form-actions', key: 'archive' },
+          h('button', { type: 'button', className: 'dsh-link-btn is-danger', disabled: busy !== '', onClick: () => void archiveSession() }, busy === 'archive' ? t('saving') : t('remoteSettings.archive')),
+        ))
+      }
+
+      return h('div', { className: 'dsh-link-remote-panel' },
+        error !== '' && phase !== 'error' ? h('div', { className: 'dsh-link-banner is-error', role: 'alert' }, error) : null,
+        notice !== '' ? h('div', { className: 'dsh-link-banner is-ok', role: 'status' }, notice) : null,
+        ...children,
+      )
+    }
+
+    /** Shell overlay registration for the remote-session settings modal. */
+    function RemoteSettingsOverlay({ ctx, t }) {
+      useLocale(ctx)
+      const target = useRemoteSettingsTarget()
+      if (target === null) return null
+      return h(React.Fragment, null,
+        h('style', null, CSS),
+        h(Sheet, {
+          t,
+          title: t('remoteSettings.title'),
+          wide: true,
+          onClose: closeRemoteSettings,
+        },
+          h(RemoteSettingsPanel, {
+            key: `${target.deviceId}:${target.remoteSessionId}`,
+            ctx,
+            t,
+            target,
+          }),
+        ),
+      )
+    }
+
+    /* --------------------------------------------------------------------- */
     /* Settings                                                               */
     /* --------------------------------------------------------------------- */
 
@@ -1966,28 +2799,141 @@ window.__ModuleLoader__.load({
     /* --------------------------------------------------------------------- */
 
     /** Build the main-panel component; closes over the plugin context. */
+    /** Rename form shared by session and project rows. */
+    function RenameDialogContent({ t, initialValue, description, label, placeholder, saving, error, onCancel, onSubmit }) {
+      const [value, setValue] = React.useState(initialValue || '')
+      const inputId = React.useId()
+      const submit = () => {
+        if (saving) return
+        onSubmit(value)
+      }
+      return h('div', { className: 'dsh-link-form' },
+        description !== undefined && description !== '' ? h('p', { className: 'dsh-link-hint' }, description) : null,
+        h('div', { className: 'dsh-link-field' },
+          h('label', { className: 'dsh-link-field-label', htmlFor: inputId }, label || t('browser.sessionPlaceholder')),
+          h('input', {
+            id: inputId,
+            className: 'dsh-link-input',
+            value,
+            placeholder: placeholder || t('browser.sessionPlaceholder'),
+            spellCheck: false,
+            autoFocus: true,
+            onChange: (event) => setValue(event.target.value),
+            onKeyDown: (event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                submit()
+              }
+            },
+          }),
+        ),
+        error !== '' ? h('div', { className: 'dsh-link-banner is-error', role: 'alert' }, error) : null,
+        h('div', { className: 'dsh-link-form-actions' },
+          h('button', { type: 'button', className: 'dsh-link-btn is-primary', disabled: saving, onClick: submit }, saving ? t('saving') : t('save')),
+          h('button', { type: 'button', className: 'dsh-link-btn', disabled: saving, onClick: onCancel }, t('cancel')),
+        ),
+      )
+    }
+
+    /** New-session form: local startSession or remote create + mirror + open. */
+    function CreateSessionDialogContent({ t, tab, tree, initialWorkspaceId, saving, error, onCancel, onSubmit }) {
+      const workspaces = tree !== null && tree !== undefined && Array.isArray(tree.workspaces) ? tree.workspaces : []
+      const initial = typeof initialWorkspaceId === 'string' && workspaces.some((workspace) => workspace.workspaceId === initialWorkspaceId) ? initialWorkspaceId : ''
+      const [workspaceId, setWorkspaceId] = React.useState(initial)
+      const [cwd, setCwd] = React.useState('')
+      const selectId = React.useId()
+      const cwdId = React.useId()
+      const local = tab.key === 'local'
+      const submit = () => {
+        if (saving) return
+        onSubmit({ workspaceId, cwd })
+      }
+      return h('div', { className: 'dsh-link-form' },
+        h('p', { className: 'dsh-link-hint' }, t('browser.newTarget', { name: tab.label })),
+        h('div', { className: 'dsh-link-field' },
+          h('label', { className: 'dsh-link-field-label', htmlFor: selectId }, t('browser.project')),
+          h('select', {
+            id: selectId,
+            className: 'dsh-link-select',
+            value: workspaceId,
+            onChange: (event) => setWorkspaceId(event.target.value),
+          },
+            h('option', { value: '' }, local ? t('browser.projectAuto') : t('browser.projectAutoRemote')),
+            ...workspaces.map((workspace) => h('option', { key: workspace.workspaceId, value: workspace.workspaceId },
+              `${workspace.title !== '' ? workspace.title : t('browser.project')}${workspace.path !== '' ? ` — ${workspace.path}` : ''}`,
+            )),
+          ),
+        ),
+        local
+          ? null
+          : h('div', { className: 'dsh-link-field' },
+              h('label', { className: 'dsh-link-field-label', htmlFor: cwdId }, t('cwd.label')),
+              h('input', {
+                id: cwdId,
+                className: 'dsh-link-input',
+                value: cwd,
+                placeholder: t('cwd.placeholder'),
+                spellCheck: false,
+                onChange: (event) => setCwd(event.target.value),
+                onKeyDown: (event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    submit()
+                  }
+                },
+              }),
+            ),
+        error !== '' ? h('div', { className: 'dsh-link-banner is-error', role: 'alert' }, error) : null,
+        h('div', { className: 'dsh-link-form-actions' },
+          h('button', { type: 'button', className: 'dsh-link-btn is-primary', disabled: saving, onClick: submit }, saving ? t('creating') : t('create')),
+          h('button', { type: 'button', className: 'dsh-link-btn', disabled: saving, onClick: onCancel }, t('cancel')),
+        ),
+      )
+    }
+
+    /**
+     * Build the main-panel component: one browser-like tab per computer, each
+     * showing that device's Workspace/Session tree. Clicking a session opens the
+     * native DSH conversation; remote sessions are mirrored on demand first.
+     */
     function createWorkspace(ctx, t) {
       return function LinkWorkspace() {
         useLocale(ctx)
-        const narrow = useMediaQuery(NARROW_QUERY)
         const [status, setStatus] = React.useState(null)
         const [statusPhase, setStatusPhase] = React.useState('loading')
         const [statusError, setStatusError] = React.useState('')
-        const [sessions, setSessions] = React.useState({})
-        const [expanded, setExpanded] = React.useState({})
-        const [selection, setSelection] = React.useState(null)
-        const [query, setQuery] = React.useState('')
-        const [sheet, setSheet] = React.useState(null)
-        const [mobileView, setMobileView] = React.useState('list')
+        const [activeKey, setActiveKey] = React.useState('local')
+        const [trees, setTrees] = React.useState({})
+        const [search, setSearch] = React.useState('')
+        const [showArchived, setShowArchived] = React.useState(false)
+        const [collapsed, setCollapsed] = React.useState({})
+        const [menu, setMenu] = React.useState(null)
+        const [dialog, setDialog] = React.useState(null)
+        const [toast, setToast] = React.useState(null)
+        const [busy, setBusy] = React.useState('')
         const statusRef = React.useRef(null)
         const statusSeq = React.useRef(0)
-        const sessionSeq = React.useRef(new Map())
+        const treeSeq = React.useRef(new Map())
+        const treesRef = React.useRef({})
         const aliveRef = React.useRef(true)
+        const menuRef = React.useRef(null)
+        const toastTimer = React.useRef(null)
 
         statusRef.current = status
+        treesRef.current = trees
 
         React.useEffect(() => () => {
           aliveRef.current = false
+          if (toastTimer.current !== null) clearTimeout(toastTimer.current)
+        }, [])
+
+        const showToast = React.useCallback((kind, text) => {
+          setToast({ kind, text })
+          if (toastTimer.current !== null) clearTimeout(toastTimer.current)
+          toastTimer.current = window.setTimeout(() => {
+            toastTimer.current = null
+            if (aliveRef.current) setToast(null)
+          }, 4500)
         }, [])
 
         const loadStatus = React.useCallback(async (quiet) => {
@@ -2007,34 +2953,43 @@ window.__ModuleLoader__.load({
           }
         }, [])
 
-        const loadSessions = React.useCallback(async (deviceId) => {
-          const current = (sessionSeq.current.get(deviceId) ?? 0) + 1
-          sessionSeq.current.set(deviceId, current)
-          setSessions((previous) => {
-            const entry = previous[deviceId]
+        const loadTree = React.useCallback(async (tabKey, options) => {
+          const force = options !== undefined && options.force === true
+          const entry = treesRef.current[tabKey]
+          if (entry !== undefined && entry.loading === true) return
+          if (!force && entry !== undefined && entry.tree !== null && Date.now() - entry.at < 10_000) return
+          const current = (treeSeq.current.get(tabKey) ?? 0) + 1
+          treeSeq.current.set(tabKey, current)
+          setTrees((previous) => {
+            const previousEntry = previous[tabKey]
             return {
               ...previous,
-              [deviceId]: {
-                phase: entry !== undefined && Array.isArray(entry.items) && entry.items.length > 0 ? 'refreshing' : 'loading',
-                items: entry !== undefined && Array.isArray(entry.items) ? entry.items : [],
+              [tabKey]: {
+                tree: previousEntry !== undefined ? previousEntry.tree : null,
                 error: '',
+                loading: true,
+                at: previousEntry !== undefined ? previousEntry.at : 0,
               },
             }
           })
           try {
-            const items = await api.sessions(deviceId)
-            if (!aliveRef.current || sessionSeq.current.get(deviceId) !== current) return
-            setSessions((previous) => ({ ...previous, [deviceId]: { phase: 'ready', items, error: '' } }))
+            const raw = tabKey === 'local' ? await api.tree() : await api.tree(tabKey)
+            if (!aliveRef.current || treeSeq.current.get(tabKey) !== current) return
+            setTrees((previous) => ({
+              ...previous,
+              [tabKey]: { tree: normalizeTree(raw), error: '', loading: false, at: Date.now() },
+            }))
           } catch (error) {
-            if (!aliveRef.current || sessionSeq.current.get(deviceId) !== current) return
-            setSessions((previous) => {
-              const entry = previous[deviceId]
+            if (!aliveRef.current || treeSeq.current.get(tabKey) !== current) return
+            setTrees((previous) => {
+              const previousEntry = previous[tabKey]
               return {
                 ...previous,
-                [deviceId]: {
-                  phase: 'error',
-                  items: entry !== undefined && Array.isArray(entry.items) ? entry.items : [],
+                [tabKey]: {
+                  tree: previousEntry !== undefined ? previousEntry.tree : null,
                   error: errorText(error),
+                  loading: false,
+                  at: previousEntry !== undefined ? previousEntry.at : 0,
                 },
               }
             })
@@ -2047,400 +3002,603 @@ window.__ModuleLoader__.load({
             if (document.visibilityState === 'visible') void loadStatus(true)
           }, 8000)
           const onVisibility = () => {
-            if (document.visibilityState === 'visible') void loadStatus(true)
+            if (document.visibilityState === 'visible') {
+              void loadStatus(true)
+              void loadTree(activeKey, { force: true })
+            }
           }
           document.addEventListener('visibilitychange', onVisibility)
           return () => {
             window.clearInterval(interval)
             document.removeEventListener('visibilitychange', onVisibility)
           }
-        }, [loadStatus])
+        }, [loadStatus, loadTree, activeKey])
+
+        React.useEffect(() => {
+          if (statusPhase !== 'ready') return
+          void loadTree(activeKey, { force: true })
+        }, [statusPhase, activeKey, loadTree])
+
+        React.useEffect(() => {
+          if (statusPhase !== 'ready') return undefined
+          const interval = window.setInterval(() => {
+            if (document.visibilityState === 'visible') void loadTree(activeKey, { force: true })
+          }, 12_000)
+          return () => window.clearInterval(interval)
+        }, [statusPhase, activeKey, loadTree])
 
         const peers = status !== null && Array.isArray(status.peers) ? status.peers.filter((peer) => peer !== null && typeof peer === 'object' && typeof peer.id === 'string') : []
         const localDevice = status !== null && status.device !== null && typeof status.device === 'object' ? status.device : null
         const configured = status !== null && status.configured === true
+        const connectionState = status !== null && status.connection !== null && typeof status.connection === 'object' && typeof status.connection.state === 'string' ? status.connection.state : 'unconfigured'
+        const tabs = [
+          { key: 'local', label: t('browser.tabLocal'), device: null, local: true },
+          ...peers.map((peer) => ({
+            key: peer.id,
+            label: typeof peer.name === 'string' && peer.name !== '' ? peer.name : peer.id,
+            device: peer,
+            local: false,
+          })),
+        ]
+        const activeTab = tabs.find((tab) => tab.key === activeKey) ?? tabs[0]
 
         React.useEffect(() => {
-          if (status === null || statusPhase !== 'ready' || selection === null) return
-          if (!peers.some((peer) => peer.id === selection.deviceId)) {
-            setSelection(null)
-            setMobileView('list')
-          }
-        }, [status, statusPhase, selection])
+          if (!tabs.some((tab) => tab.key === activeKey)) setActiveKey('local')
+        }, [status, activeKey])
 
         React.useEffect(() => {
-          if (narrow && selection === null && mobileView !== 'list') setMobileView('list')
-        }, [narrow, selection, mobileView])
-
-        const selectedDevice = selection === null ? null : peers.find((peer) => peer.id === selection.deviceId) ?? null
-        const selectedEntry = selection === null ? undefined : sessions[selection.deviceId]
-        const selectedSession = selection === null
-          ? null
-          : (selectedEntry !== undefined && Array.isArray(selectedEntry.items) ? selectedEntry.items : []).find((item) => item.sessionId === selection.sessionId)
-            ?? { sessionId: selection.sessionId, title: '', cwd: '', updatedAt: 0, running: false, active: false, agentAvailable: true, blank: false }
-
-        const toggleDevice = (deviceId) => {
-          const open = expanded[deviceId] === true
-          setExpanded((previous) => {
-            const next = { ...previous }
-            if (open) delete next[deviceId]
-            else next[deviceId] = true
-            return next
-          })
-          if (!open) {
-            const entry = sessions[deviceId]
-            if (entry === undefined || entry.phase === 'error') void loadSessions(deviceId)
+          if (menu === null) return undefined
+          const onPointerDown = (event) => {
+            if (menuRef.current !== null && menuRef.current.contains(event.target)) return
+            setMenu(null)
           }
-        }
-
-        const selectSession = (deviceId, sessionId) => {
-          setSelection({ deviceId, sessionId })
-          setMobileView('chat')
-          setSheet(null)
-        }
-
-        const refreshAll = () => {
-          void loadStatus(true)
-          for (const deviceId of Object.keys(expanded)) {
-            if (expanded[deviceId] === true) void loadSessions(deviceId)
+          const onKeyDown = (event) => {
+            if (event.key === 'Escape') setMenu(null)
           }
+          document.addEventListener('mousedown', onPointerDown)
+          document.addEventListener('keydown', onKeyDown)
+          return () => {
+            document.removeEventListener('mousedown', onPointerDown)
+            document.removeEventListener('keydown', onKeyDown)
+          }
+        }, [menu])
+
+        React.useEffect(() => {
+          setMenu(null)
+        }, [activeKey])
+
+        const q = search.trim().toLowerCase()
+
+        const toggleArchived = () => setShowArchived((value) => !value)
+        const toggleProject = (groupKey) => {
+          const key = `${activeTab.key}:${groupKey}`
+          setCollapsed((previous) => ({ ...previous, [key]: previous[key] !== true }))
         }
 
-        const goLocal = () => {
-          const layout = ctx.get('layout')
-          if (layout === undefined || layout === null || typeof layout.selectPanel !== 'function') return
+        const openCreate = (workspaceId) => {
+          setMenu(null)
+          setDialog({ kind: 'create', tabKey: activeTab.key, workspaceId: typeof workspaceId === 'string' ? workspaceId : '', saving: false, error: '' })
+        }
+
+        const openRenameSession = (tab, session, title) => {
+          setMenu(null)
+          setDialog({ kind: 'renameSession', tabKey: tab.key, sessionId: session.sessionId, initial: title, saving: false, error: '' })
+        }
+
+        const openRenameWorkspace = (tab, workspace, title) => {
+          setMenu(null)
+          setDialog({ kind: 'renameWorkspace', tabKey: tab.key, workspaceId: workspace.workspaceId, initial: title, saving: false, error: '' })
+        }
+
+        const openSession = async (tab, session) => {
+          const key = `open:${tab.key}:${session.sessionId}`
+          if (busy !== '') return
+          setBusy(key)
           try {
-            layout.selectPanel(null)
-          } catch {
-            // a missing local conversation panel is not fatal for this page
-          }
-        }
-
-        const onCreated = (deviceId, sessionId) => {
-          setSheet(null)
-          setExpanded((previous) => ({ ...previous, [deviceId]: true }))
-          setSelection({ deviceId, sessionId })
-          setMobileView('chat')
-          void loadSessions(deviceId)
-        }
-
-        const onRenamed = (deviceId, sessionId, title) => {
-          setSessions((previous) => {
-            const entry = previous[deviceId]
-            if (entry === undefined || !Array.isArray(entry.items)) return previous
-            return {
-              ...previous,
-              [deviceId]: {
-                ...entry,
-                items: entry.items.map((item) => item.sessionId === sessionId ? { ...item, title } : item),
-              },
-            }
-          })
-        }
-
-        const queryNormalized = query.trim().toLowerCase()
-        const matchesSession = (session) => queryNormalized === '' || `${typeof session.title === 'string' ? session.title : ''} ${typeof session.cwd === 'string' ? session.cwd : ''}`.toLowerCase().includes(queryNormalized)
-
-        const renderLocalCard = () => {
-          if (localDevice === null) return null
-          return h('div', { className: 'dsh-link-device is-local' },
-            h('div', { className: 'dsh-link-device-head' },
-              h('span', { className: 'dsh-link-device-icon' }, h(DeviceGlyph, { size: 16 })),
-              h('div', { className: 'dsh-link-device-info' },
-                h('span', { className: 'dsh-link-device-name', title: typeof localDevice.name === 'string' ? localDevice.name : '' }, typeof localDevice.name === 'string' && localDevice.name !== '' ? localDevice.name : '—'),
-                h('span', { className: 'dsh-link-device-sub' },
-                  h('span', { className: cls('dsh-link-dot', connectionTone(status !== null && status.connection !== null ? status.connection.state : 'unconfigured')) }),
-                  platformLabel(t, localDevice.platform),
-                  h('span', { className: 'dsh-link-badge is-local' }, t('badge.local')),
-                ),
-              ),
-            ),
-            h('div', { className: 'dsh-link-device-body' },
-              h('p', { className: 'dsh-link-hint' }, t('local.hint')),
-              ctx.get('layout') !== undefined
-                ? h('div', { className: 'dsh-link-form-actions', style: { marginTop: '7px' } },
-                    h('button', { type: 'button', className: 'dsh-link-btn is-small', onClick: goLocal }, t('local.open')),
-                  )
-                : null,
-            ),
-          )
-        }
-
-        const renderSessionRow = (deviceId, session) => {
-          const running = session.running === true
-          const updated = relativeTime(t, session.updatedAt)
-          const title = typeof session.title === 'string' && session.title !== '' ? session.title : t('untitled')
-          const isSelected = selection !== null && selection.deviceId === deviceId && selection.sessionId === session.sessionId
-          return h('button', {
-            type: 'button',
-            key: String(session.sessionId),
-            className: cls('dsh-link-session', isSelected ? 'is-selected' : ''),
-            onClick: () => selectSession(deviceId, session.sessionId),
-            title,
-          },
-            h('span', { className: 'dsh-link-session-main' },
-              h('span', { className: 'dsh-link-session-title' }, title),
-              h('span', { className: 'dsh-link-session-meta' },
-                running ? h('span', { className: 'dsh-link-dot is-ok is-pulse' }) : null,
-                running ? h('span', null, t('running')) : null,
-                session.active === true ? h('span', { className: 'dsh-link-badge' }, t('active')) : null,
-                updated !== '' ? h('span', null, updated) : null,
-              ),
-            ),
-          )
-        }
-
-        const renderDevice = (peer) => {
-          const open = expanded[peer.id] === true
-          const entry = sessions[peer.id]
-          const items = entry !== undefined && Array.isArray(entry.items) ? entry.items : []
-          const deviceMatches = queryNormalized !== '' && `${typeof peer.name === 'string' ? peer.name : ''} ${typeof peer.platform === 'string' ? peer.platform : ''}`.toLowerCase().includes(queryNormalized)
-          const filtered = queryNormalized === '' || deviceMatches ? items : items.filter(matchesSession)
-          const loading = entry === undefined || entry.phase === 'loading' || entry.phase === 'refreshing'
-          const failed = entry !== undefined && entry.phase === 'error'
-          let body = null
-          if (open) {
-            const children = []
-            const errorNote = failed
-              ? h('div', { className: 'dsh-link-list-note', key: 'error' },
-                  h('span', null, `${t('loadSessionsFailed')}: ${entry.error}`),
-                  h('button', { type: 'button', className: 'dsh-link-btn is-small', onClick: () => void loadSessions(peer.id) }, t('retry')),
-                )
-              : null
-            if (loading && items.length === 0) {
-              children.push(h('p', { className: 'dsh-link-hint', key: 'loading', style: { padding: '2px 6px 6px' } }, t('loading')))
-            } else if (failed && items.length === 0) {
-              children.push(errorNote)
-            } else {
-              if (errorNote !== null) children.push(errorNote)
-              if (filtered.length === 0) {
-                children.push(h('p', { className: 'dsh-link-hint', key: 'empty', style: { padding: '2px 6px 6px' } },
-                  queryNormalized !== '' && items.length > 0 ? t('noSessionsMatch') : t('noSessions'),
-                ))
-              } else {
-                children.push(h('div', { className: 'dsh-link-sessions', key: 'rows' }, ...filtered.map((session) => renderSessionRow(peer.id, session))))
+            const ui = ctx.get('uiWorkspace')
+            if (ui === undefined || ui === null || typeof ui.openSession !== 'function') throw new Error('uiWorkspace unavailable')
+            let localSessionId = session.sessionId
+            if (tab.key !== 'local') {
+              localSessionId = session.localSessionId
+              if (localSessionId === '') {
+                const mirror = await api.ensureMirror(tab.key, session.sessionId)
+                localSessionId = mirror !== null && typeof mirror === 'object' && typeof mirror.localSessionId === 'string' ? mirror.localSessionId : ''
               }
+              if (localSessionId === '') throw new Error(t('browser.mirrorFailed'))
             }
-            body = h('div', { className: 'dsh-link-device-body' }, ...children)
+            ui.openSession(localSessionId)
+          } catch (error) {
+            if (aliveRef.current) showToast('error', `${t('browser.openFailed')}: ${errorText(error)}`)
+          } finally {
+            if (aliveRef.current) setBusy('')
           }
-          return h('div', { className: 'dsh-link-device is-remote', key: peer.id },
-            h('div', { className: 'dsh-link-device-head' },
+        }
+
+        const archiveSession = async (tab, session, archived) => {
+          if (busy !== '') return
+          setMenu(null)
+          setBusy(`archive:${tab.key}:${session.sessionId}`)
+          try {
+            await api.archive(tab.key === 'local' ? undefined : tab.key, session.sessionId, archived)
+            if (!aliveRef.current) return
+            showToast('ok', archived ? t('browser.archivedDone') : t('browser.unarchivedDone'))
+            void loadTree(tab.key, { force: true })
+          } catch (error) {
+            if (aliveRef.current) showToast('error', `${archived ? t('browser.archiveFailed') : t('browser.unarchiveFailed')}: ${errorText(error)}`)
+          } finally {
+            if (aliveRef.current) setBusy('')
+          }
+        }
+
+        const copyText = async (text) => {
+          setMenu(null)
+          try {
+            if (navigator.clipboard === undefined || typeof navigator.clipboard.writeText !== 'function') throw new Error('clipboard unavailable')
+            await navigator.clipboard.writeText(text)
+            if (aliveRef.current) showToast('ok', t('browser.copied'))
+          } catch {
+            if (aliveRef.current) showToast('error', t('browser.copyFailed'))
+          }
+        }
+
+        const submitCreate = async (values) => {
+          if (dialog === null || dialog.kind !== 'create') return
+          const tab = tabs.find((item) => item.key === dialog.tabKey)
+          if (tab === undefined) {
+            setDialog(null)
+            return
+          }
+          setDialog((previous) => previous === null ? previous : { ...previous, saving: true, error: '' })
+          try {
+            const ui = ctx.get('uiWorkspace')
+            if (ui === undefined || ui === null) throw new Error('uiWorkspace unavailable')
+            if (tab.key === 'local') {
+              if (typeof ui.startSession !== 'function') throw new Error('uiWorkspace unavailable')
+              ui.startSession(values.workspaceId === '' ? undefined : values.workspaceId)
+              if (aliveRef.current) setDialog(null)
+              return
+            }
+            const payload = await api.createRemote(tab.key, values.workspaceId, values.cwd)
+            let localSessionId = payload !== null && typeof payload === 'object' && typeof payload.localSessionId === 'string' ? payload.localSessionId : ''
+            const remoteSessionId = payload !== null && typeof payload === 'object' && typeof payload.sessionId === 'string' ? payload.sessionId : ''
+            if (localSessionId === '') {
+              if (remoteSessionId === '') throw new Error('missing sessionId')
+              const mirror = await api.ensureMirror(tab.key, remoteSessionId)
+              localSessionId = mirror !== null && typeof mirror === 'object' && typeof mirror.localSessionId === 'string' ? mirror.localSessionId : ''
+            }
+            if (localSessionId === '') throw new Error(t('browser.mirrorFailed'))
+            if (typeof ui.openSession !== 'function') throw new Error('uiWorkspace unavailable')
+            if (aliveRef.current) setDialog(null)
+            void loadTree(tab.key, { force: true })
+            try {
+              ui.openSession(localSessionId)
+            } catch (error) {
+              showToast('error', `${t('browser.openFailed')}: ${errorText(error)}`)
+            }
+          } catch (error) {
+            if (aliveRef.current) setDialog((previous) => previous === null ? previous : { ...previous, saving: false, error: `${t('browser.createFailed')}: ${errorText(error)}` })
+          }
+        }
+
+        const submitRename = async (value) => {
+          if (dialog === null || (dialog.kind !== 'renameSession' && dialog.kind !== 'renameWorkspace')) return
+          const title = value.trim()
+          if (title === '') {
+            setDialog((previous) => previous === null ? previous : { ...previous, error: t('browser.titleRequired') })
+            return
+          }
+          const tab = tabs.find((item) => item.key === dialog.tabKey)
+          if (tab === undefined) {
+            setDialog(null)
+            return
+          }
+          setDialog((previous) => previous === null ? previous : { ...previous, saving: true, error: '' })
+          try {
+            if (dialog.kind === 'renameSession') {
+              if (tab.key === 'local') await api.localRenameSession(dialog.sessionId, title)
+              else await api.rename(tab.key, dialog.sessionId, title)
+              void refreshMirrors(true)
+            } else {
+              if (tab.key === 'local') await api.localRenameWorkspace(dialog.workspaceId, title)
+              else await api.renameWorkspace(tab.key, dialog.workspaceId, title)
+            }
+            if (!aliveRef.current) return
+            setDialog(null)
+            showToast('ok', t('browser.renameDone'))
+            void loadTree(dialog.tabKey, { force: true })
+          } catch (error) {
+            if (aliveRef.current) setDialog((previous) => previous === null ? previous : { ...previous, saving: false, error: `${t('browser.renameFailed')}: ${errorText(error)}` })
+          }
+        }
+
+        const renderEmpty = (title, hint, actions) => h('div', { className: 'dsh-link-browser-empty' },
+          h('div', { className: 'dsh-link-browser-empty-icon' }, h(PanelIcon, { size: 42, active: false })),
+          h('h3', { className: 'dsh-link-browser-empty-title' }, title),
+          hint !== '' ? h('p', { className: 'dsh-link-browser-empty-hint' }, hint) : null,
+          actions !== undefined && actions !== null ? h('div', { className: 'dsh-link-browser-empty-actions' }, ...actions) : null,
+        )
+
+        const renderSession = (tab, session, archived) => {
+          const sessionTitle = session.title !== '' ? session.title : t('untitled')
+          const updated = relativeTime(t, session.updatedAt)
+          const busyKey = `open:${tab.key}:${session.sessionId}`
+          const archiveBusy = `archive:${tab.key}:${session.sessionId}`
+          const opening = busy === busyKey
+          const archiving = busy === archiveBusy
+          const menuOpen = menu !== null && menu.kind === 'session' && menu.tabKey === tab.key && menu.id === session.sessionId
+          return h('div', {
+            key: `session:${session.sessionId}`,
+            className: cls('dsh-link-browser-session', archived ? 'is-archived' : '', opening || archiving ? 'is-busy' : ''),
+            role: 'button',
+            tabIndex: 0,
+            'aria-busy': opening || archiving,
+            title: `${sessionTitle}${session.cwd !== '' ? ` — ${session.cwd}` : ''}`,
+            onClick: () => void openSession(tab, session),
+            onKeyDown: (event) => {
+              if (event.target !== event.currentTarget) return
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                void openSession(tab, session)
+              }
+            },
+          },
+            h('span', { className: 'dsh-link-browser-session-main' },
+              h('span', { className: 'dsh-link-browser-session-title' }, sessionTitle),
+              h('span', { className: 'dsh-link-browser-session-meta' },
+                session.running ? h('span', { className: 'dsh-link-dot is-ok is-pulse' }) : null,
+                session.running ? h('span', null, t('running')) : null,
+                updated !== '' ? h('span', null, updated) : null,
+                session.cwd !== '' && session.title === '' ? h('span', null, session.cwd) : null,
+              ),
+            ),
+            h('span', { className: 'dsh-link-browser-session-badges' },
+              tab.key !== 'local' ? h('span', { className: 'dsh-link-badge is-remote' }, t('badge.remote')) : null,
+              archived ? h('span', { className: 'dsh-link-badge' }, t('browser.archived')) : null,
+            ),
+            h('span', { className: cls('dsh-link-browser-session-actions', menuOpen ? 'is-open' : '') },
               h('button', {
                 type: 'button',
-                className: 'dsh-link-device-toggle',
-                onClick: () => toggleDevice(peer.id),
-                'aria-expanded': open,
-                'aria-label': `${typeof peer.name === 'string' && peer.name !== '' ? peer.name : peer.id} — ${open ? t('collapse') : t('expand')}`,
+                className: 'dsh-link-native-gear',
+                'aria-label': t('browser.more'),
+                title: t('browser.more'),
+                'aria-haspopup': 'menu',
+                'aria-expanded': menuOpen,
+                onClick: (event) => {
+                  event.stopPropagation()
+                  setMenu((previous) => previous !== null && previous.kind === 'session' && previous.tabKey === tab.key && previous.id === session.sessionId ? null : { kind: 'session', tabKey: tab.key, id: session.sessionId, title: sessionTitle, session, archived })
+                },
+                onPointerDown: (event) => event.stopPropagation(),
+              }, h(MoreGlyph)),
+            ),
+            menuOpen ? h('div', { className: 'dsh-link-browser-menu', role: 'menu', ref: menuRef },
+              h('button', {
+                type: 'button',
+                className: 'dsh-link-browser-menu-item',
+                role: 'menuitem',
+                onClick: (event) => {
+                  event.stopPropagation()
+                  openRenameSession(tab, session, sessionTitle)
+                },
+              }, t('browser.renameSession')),
+              h('button', {
+                type: 'button',
+                className: 'dsh-link-browser-menu-item',
+                role: 'menuitem',
+                disabled: archiving,
+                onClick: (event) => {
+                  event.stopPropagation()
+                  void archiveSession(tab, session, !archived)
+                },
+              }, archived ? t('browser.unarchive') : t('browser.archive')),
+              h('div', { className: 'dsh-link-browser-menu-sep' }),
+              h('button', {
+                type: 'button',
+                className: 'dsh-link-browser-menu-item',
+                role: 'menuitem',
+                onClick: (event) => {
+                  event.stopPropagation()
+                  void copyText(session.sessionId)
+                },
+              }, t('browser.copySessionId')),
+            ) : null,
+          )
+        }
+
+        const renderGroup = (tab, group, archivedSet, pinnedSet) => {
+          const collapsedKey = `${tab.key}:${group.key}`
+          const isCollapsed = q === '' && collapsed[collapsedKey] === true
+          const groupMenuOpen = menu !== null && menu.kind === 'workspace' && menu.tabKey === tab.key && menu.id === group.workspaceId
+          const sessions = group.sessions.slice().sort((left, right) => {
+            const leftPinned = pinnedSet.has(left.sessionId) ? 1 : 0
+            const rightPinned = pinnedSet.has(right.sessionId) ? 1 : 0
+            if (leftPinned !== rightPinned) return rightPinned - leftPinned
+            return (right.updatedAt || 0) - (left.updatedAt || 0)
+          })
+          return h('div', { className: 'dsh-link-project', key: group.key },
+            h('div', { className: 'dsh-link-project-head' },
+              h('button', {
+                type: 'button',
+                className: 'dsh-link-project-toggle',
+                'aria-expanded': !isCollapsed,
+                onClick: () => { if (q === '') toggleProject(group.key) },
               },
-                h('span', { className: cls('dsh-link-device-chevron', open ? 'is-open' : '') }, h(ChevronGlyph)),
-                h('span', { className: 'dsh-link-device-icon' }, h(DeviceGlyph, { size: 16 })),
-                h('span', { className: 'dsh-link-device-info' },
-                  h('span', { className: 'dsh-link-device-name' }, typeof peer.name === 'string' && peer.name !== '' ? peer.name : peer.id),
-                  h('span', { className: 'dsh-link-device-sub' },
-                    h('span', { className: 'dsh-link-dot is-ok' }),
-                    platformLabel(t, peer.platform),
-                    h('span', { className: 'dsh-link-badge is-remote' }, t('badge.remote')),
-                  ),
+                h('span', { className: cls('dsh-link-project-chevron', isCollapsed ? '' : 'is-open') }, h(ChevronGlyph)),
+                h('span', { className: 'dsh-link-project-folder' }, h(FolderGlyph, { size: 15 })),
+                h('span', { className: 'dsh-link-project-info' },
+                  h('span', { className: 'dsh-link-project-title' }, group.title),
+                  group.path !== '' ? h('span', { className: 'dsh-link-project-path' }, group.path) : null,
                 ),
+                h('span', { className: 'dsh-link-project-count' }, t('browser.projectCount', { n: sessions.length })),
               ),
-              h('div', { className: 'dsh-link-device-actions' },
+              group.orphan
+                ? null
+                : h('div', { className: cls('dsh-link-project-actions', groupMenuOpen ? 'is-open' : '') },
+                    h('button', {
+                      type: 'button',
+                      className: 'dsh-link-native-gear',
+                      title: t('browser.newInProject'),
+                      'aria-label': t('browser.newInProject'),
+                      onClick: (event) => {
+                        event.stopPropagation()
+                        openCreate(group.workspaceId)
+                      },
+                    }, h(PlusGlyph)),
+                    h('button', {
+                      type: 'button',
+                      className: 'dsh-link-native-gear',
+                      title: t('browser.more'),
+                      'aria-label': t('browser.more'),
+                      'aria-haspopup': 'menu',
+                      'aria-expanded': groupMenuOpen,
+                      onClick: (event) => {
+                        event.stopPropagation()
+                        setMenu((previous) => previous !== null && previous.kind === 'workspace' && previous.tabKey === tab.key && previous.id === group.workspaceId ? null : { kind: 'workspace', tabKey: tab.key, id: group.workspaceId, title: group.title, workspace: group.workspace })
+                      },
+                      onPointerDown: (event) => event.stopPropagation(),
+                    }, h(MoreGlyph)),
+                    groupMenuOpen ? h('div', { className: 'dsh-link-browser-menu is-project', role: 'menu', ref: menuRef },
+                      h('button', { type: 'button', className: 'dsh-link-browser-menu-item', role: 'menuitem', onClick: (event) => { event.stopPropagation(); openRenameWorkspace(tab, group.workspace, group.title) } }, t('browser.renameWorkspace')),
+                      h('button', { type: 'button', className: 'dsh-link-browser-menu-item', role: 'menuitem', onClick: (event) => { event.stopPropagation(); openCreate(group.workspaceId) } }, t('browser.newInProject')),
+                      h('div', { className: 'dsh-link-browser-menu-sep' }),
+                      h('button', { type: 'button', className: 'dsh-link-browser-menu-item', role: 'menuitem', onClick: (event) => { event.stopPropagation(); void copyText(group.workspaceId) } }, t('browser.copyWorkspaceId')),
+                    ) : null,
+                  ),
+            ),
+            isCollapsed
+              ? null
+              : h('div', { className: 'dsh-link-project-sessions' },
+                  sessions.length === 0
+                    ? h('p', { className: 'dsh-link-project-note' }, t('browser.noSessions'))
+                    : sessions.map((session) => renderSession(tab, session, archivedSet.has(session.sessionId))),
+                ),
+          )
+        }
+
+        const renderBrowser = () => {
+          const entry = trees[activeTab.key]
+          const tree = entry !== undefined && entry.tree !== null ? entry.tree : null
+          const loading = entry === undefined || entry.loading === true
+          const archivedSet = tree !== null ? new Set(tree.archivedSessionIds) : new Set()
+          const pinnedSet = tree !== null ? new Set(tree.pinnedSessionIds) : new Set()
+          const groups = []
+          if (tree !== null) {
+            for (const workspace of tree.workspaces) {
+              const sessions = []
+              for (const session of workspace.sessions) {
+                if (!showArchived && archivedSet.has(session.sessionId)) continue
+                sessions.push(session)
+              }
+              const projectHit = q === '' || workspace.title.toLowerCase().includes(q) || workspace.path.toLowerCase().includes(q)
+              const matched = q === '' || projectHit
+                ? sessions
+                : sessions.filter((session) => `${session.title} ${session.cwd}`.toLowerCase().includes(q))
+              if (q !== '' && !projectHit && matched.length === 0) continue
+              groups.push({
+                key: `workspace:${workspace.workspaceId}`,
+                workspace,
+                workspaceId: workspace.workspaceId,
+                title: workspace.title !== '' ? workspace.title : t('browser.project'),
+                path: workspace.path,
+                sessions: matched,
+                orphan: false,
+              })
+            }
+            const orphanSessions = []
+            for (const session of tree.orphanSessions) {
+              if (!showArchived && archivedSet.has(session.sessionId)) continue
+              orphanSessions.push(session)
+            }
+            const orphanMatched = q === ''
+              ? orphanSessions
+              : orphanSessions.filter((session) => `${session.title} ${session.cwd}`.toLowerCase().includes(q))
+            if (q === '' || orphanMatched.length > 0) {
+              if (orphanSessions.length > 0 || orphanMatched.length > 0) {
+                groups.push({
+                  key: 'orphan',
+                  workspace: null,
+                  workspaceId: '',
+                  title: t('browser.orphan'),
+                  path: '',
+                  sessions: orphanMatched,
+                  orphan: true,
+                })
+              }
+            }
+          }
+          const visibleCount = groups.reduce((total, group) => total + group.sessions.length, 0)
+          const hasSessions = tree !== null && (tree.workspaces.some((workspace) => workspace.sessions.length > 0) || tree.orphanSessions.length > 0)
+          const archivedCount = archivedSet.size
+          let body = null
+          if (statusPhase === 'loading' && status === null) {
+            body = h('p', { className: 'dsh-link-hint', style: { padding: '24px' } }, t('loading'))
+          } else if (statusPhase === 'error' && status === null) {
+            body = renderEmpty(t('apiError'), statusError, [
+              h('button', { type: 'button', className: 'dsh-link-btn is-primary', onClick: () => void loadStatus(false) }, t('retry')),
+              h('button', { type: 'button', className: 'dsh-link-btn', onClick: () => setDialog({ kind: 'settings' }) }, t('settings')),
+            ])
+          } else if (tree === null) {
+            body = loading
+              ? h('p', { className: 'dsh-link-hint', style: { padding: '24px' } }, t('browser.loading'))
+              : renderEmpty(t('browser.loadFailed'), entry.error, [
+                  h('button', { type: 'button', className: 'dsh-link-btn is-primary', onClick: () => void loadTree(activeTab.key, { force: true }) }, t('retry')),
+                ])
+          } else if (q !== '' && groups.length === 0) {
+            body = renderEmpty(t('browser.noMatches'), '', [
+              h('button', { type: 'button', className: 'dsh-link-btn', onClick: () => setSearch('') }, t('browser.clearSearch')),
+            ])
+          } else if (q === '' && visibleCount === 0 && archivedCount > 0) {
+            body = renderEmpty(t('browser.allArchived'), t('browser.allArchived'), [
+              h('button', { type: 'button', className: 'dsh-link-btn is-primary', onClick: toggleArchived }, t('browser.showArchived', { n: archivedCount })),
+            ])
+          } else if (groups.length === 0 && (!hasSessions || q !== '')) {
+            body = renderEmpty(t('browser.emptyTitle'), t('browser.emptyHint'), [
+              h('button', { type: 'button', className: 'dsh-link-btn is-primary', onClick: () => openCreate('') }, t('browser.new')),
+            ])
+          } else {
+            body = h('div', { className: 'dsh-link-browser-scroll' },
+              h('div', { className: 'dsh-link-browser-inner' },
+                ...groups.map((group) => renderGroup(activeTab, group, archivedSet, pinnedSet)),
+              ),
+            )
+          }
+          const showArchivedToggle = archivedCount > 0
+          return h('div', { className: 'dsh-link-browser' },
+            h('div', { className: 'dsh-link-browser-toolbar' },
+              h('div', { className: 'dsh-link-browser-search' },
+                h('svg', { width: 13, height: 13, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true },
+                  h('circle', { cx: 7, cy: 7, r: 4.5, stroke: 'currentColor', strokeWidth: 1.3 }),
+                  h('path', { d: 'm10.5 10.5 3 3', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round' }),
+                ),
+                h('input', {
+                  value: search,
+                  placeholder: t('browser.search'),
+                  'aria-label': t('browser.search'),
+                  spellCheck: false,
+                  onChange: (event) => setSearch(event.target.value),
+                }),
+                search !== ''
+                  ? h('button', { type: 'button', className: 'dsh-link-browser-search-clear', 'aria-label': t('close'), title: t('close'), onClick: () => setSearch('') }, h(CloseGlyph, { size: 11 }))
+                  : null,
+              ),
+              h('div', { className: 'dsh-link-browser-actions' },
+                showArchivedToggle
+                  ? h('button', { type: 'button', className: cls('dsh-link-btn is-small', showArchived ? 'is-primary' : ''), 'aria-pressed': showArchived, onClick: toggleArchived }, showArchived ? t('browser.hideArchived') : t('browser.showArchived', { n: archivedCount }))
+                  : null,
                 h('button', {
                   type: 'button',
-                  className: 'dsh-link-btn is-ghost is-icon is-small',
-                  onClick: () => setSheet({ type: 'new', deviceId: peer.id }),
-                  'aria-label': t('newSession.title'),
-                  title: t('newSession.title'),
-                }, h(PlusGlyph)),
+                  className: 'dsh-link-btn is-small',
+                  disabled: loading,
+                  onClick: () => void loadTree(activeTab.key, { force: true }),
+                }, h(RefreshGlyph), h('span', { className: 'dsh-link-btn-label' }, t('refresh'))),
+                h('button', { type: 'button', className: 'dsh-link-btn is-primary', onClick: () => openCreate('') }, h(PlusGlyph), h('span', { className: 'dsh-link-btn-label' }, t('browser.new'))),
               ),
             ),
+            entry !== undefined && entry.error !== '' && tree !== null ? h('div', { className: 'dsh-link-banner is-error', role: 'alert' },
+              h('span', null, entry.error),
+              h('button', { type: 'button', className: 'dsh-link-btn is-small', onClick: () => void loadTree(activeTab.key, { force: true }) }, t('retry')),
+            ) : null,
+            !configured && status !== null && statusPhase === 'ready' && activeTab.key === 'local'
+              ? h('div', { className: 'dsh-link-banner is-warn' },
+                  h('span', null, t('browser.unpaired')),
+                  h('button', { type: 'button', className: 'dsh-link-btn is-small', onClick: () => setDialog({ kind: 'settings' }) }, t('empty.pair')),
+                )
+              : null,
             body,
           )
         }
 
-        const renderList = () => {
-          const children = []
-          children.push(h('div', { className: 'dsh-link-list-top', key: 'top' },
-            peers.length > 0
-              ? h('div', { className: 'dsh-link-search' },
-                  h('svg', { width: 13, height: 13, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true },
-                    h('circle', { cx: 7, cy: 7, r: 4.5, stroke: 'currentColor', strokeWidth: 1.3 }),
-                    h('path', { d: 'm10.5 10.5 3 3', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round' }),
-                  ),
-                  h('input', {
-                    value: query,
-                    placeholder: t('search.placeholder'),
-                    spellCheck: false,
-                    'aria-label': t('search.placeholder'),
-                    onChange: (event) => setQuery(event.target.value),
-                  }),
-                )
-              : null,
-          ))
-
-          const scrollChildren = []
-          if (localDevice !== null) {
-            scrollChildren.push(h('div', { className: 'dsh-link-group', key: 'local' },
-              h('div', { className: 'dsh-link-group-head' },
-                h('span', { className: 'dsh-link-group-label' }, t('group.local')),
-              ),
-              renderLocalCard(),
-            ))
-          }
-
-          if (statusError !== '' && status !== null) {
-            scrollChildren.push(h('div', { className: 'dsh-link-list-note', key: 'status-error' },
-              h('span', null, statusError),
-              h('button', { type: 'button', className: 'dsh-link-btn is-small', onClick: () => void loadStatus(true) }, t('retry')),
-            ))
-          }
-
-          const remoteChildren = []
-          if (statusPhase === 'loading' && status === null) {
-            remoteChildren.push(h('p', { className: 'dsh-link-hint', key: 'loading' }, t('loading')))
-          } else if (statusPhase === 'error' && status === null) {
-            remoteChildren.push(h('div', { className: 'dsh-link-list-note', key: 'error' },
-              h('span', null, statusError !== '' ? statusError : t('apiError')),
-              h('button', { type: 'button', className: 'dsh-link-btn is-small', onClick: () => void loadStatus(false) }, t('retry')),
-            ))
-          } else if (!configured) {
-            remoteChildren.push(h('p', { className: 'dsh-link-hint', key: 'unconfigured' }, t('settings.unconfigured')))
-          } else if (peers.length === 0) {
-            remoteChildren.push(h('p', { className: 'dsh-link-hint', key: 'nopeers' }, t('noPeersShort')))
-          } else {
-            remoteChildren.push(...peers.map(renderDevice))
-          }
-          scrollChildren.push(h('div', { className: 'dsh-link-group', key: 'remote' },
-            h('div', { className: 'dsh-link-group-head' },
-              h('span', { className: 'dsh-link-group-label' }, t('group.remote')),
-              configured ? h('span', { className: 'dsh-link-group-count' }, t('remote.online', { n: peers.length })) : null,
-            ),
-            ...remoteChildren,
-          ))
-          children.push(h('div', { className: 'dsh-link-list-scroll', key: 'scroll' }, ...scrollChildren))
-          return h('aside', { className: 'dsh-link-listpane' }, ...children)
-        }
-
-        const renderRight = () => {
-          if (statusPhase === 'loading' && status === null) {
-            return h('div', { className: 'dsh-link-empty' }, h('p', { className: 'dsh-link-empty-hint' }, t('loading')))
-          }
-          if (statusPhase === 'error' && status === null) {
-            return h('div', { className: 'dsh-link-empty' },
-              h('h3', { className: 'dsh-link-empty-title' }, t('apiError')),
-              h('p', { className: 'dsh-link-empty-hint' }, statusError),
-              h('div', { className: 'dsh-link-empty-actions' },
-                h('button', { type: 'button', className: 'dsh-link-btn is-primary', onClick: () => void loadStatus(false) }, t('retry')),
-              ),
-            )
-          }
-          if (!configured) {
-            return h('div', { className: 'dsh-link-empty' },
-              h('div', { className: 'dsh-link-empty-icon' }, h(PanelIcon, { size: 58, active: true })),
-              h('h3', { className: 'dsh-link-empty-title' }, t('empty.title')),
-              h('p', { className: 'dsh-link-empty-hint' }, t('empty.hint')),
-              h('div', { className: 'dsh-link-empty-actions' },
-                h('button', { type: 'button', className: 'dsh-link-btn is-primary', onClick: () => setSheet('settings') }, t('empty.pair')),
-              ),
-            )
-          }
-          if (selection === null) {
-            if (peers.length === 0) {
-              return h('div', { className: 'dsh-link-empty' },
-                h('div', { className: 'dsh-link-empty-icon' }, h(PanelIcon, { size: 52, active: false })),
-                h('h3', { className: 'dsh-link-empty-title' }, t('noPeersShort')),
-                h('p', { className: 'dsh-link-empty-hint' }, t('noPeers')),
-                h('div', { className: 'dsh-link-empty-actions' },
-                  h('button', { type: 'button', className: 'dsh-link-btn', onClick: refreshAll }, t('refresh')),
-                  h('button', { type: 'button', className: 'dsh-link-btn is-primary', onClick: () => setSheet('settings') }, t('settings')),
-                ),
-              )
-            }
-            return h('div', { className: 'dsh-link-empty' },
-              h('div', { className: 'dsh-link-empty-icon' }, h(PanelIcon, { size: 52, active: false })),
-              h('h3', { className: 'dsh-link-empty-title' }, t('select.title')),
-              h('p', { className: 'dsh-link-empty-hint' }, t('select.hint')),
-            )
-          }
-          if (selectedDevice === null || selectedSession === null) {
-            return h('div', { className: 'dsh-link-empty' },
-              h('h3', { className: 'dsh-link-empty-title' }, t('noPeersShort')),
-              h('p', { className: 'dsh-link-empty-hint' }, t('select.hint')),
-              h('div', { className: 'dsh-link-empty-actions' },
-                h('button', { type: 'button', className: 'dsh-link-btn', onClick: () => setSelection(null) }, t('back')),
-              ),
-            )
-          }
-          return h(RemoteConversation, {
-            key: `${selection.deviceId}:${selection.sessionId}`,
-            ctx,
+        const renameDialog = () => {
+          if (dialog === null || (dialog.kind !== 'renameSession' && dialog.kind !== 'renameWorkspace')) return null
+          const tab = tabs.find((item) => item.key === dialog.tabKey)
+          if (tab === undefined) return null
+          return h(Sheet, {
             t,
-            device: selectedDevice,
-            session: selectedSession,
-            onBack: narrow ? () => setMobileView('list') : null,
-            onRenamed: (sessionId, title) => onRenamed(selection.deviceId, sessionId, title),
-          })
+            title: dialog.kind === 'renameSession' ? t('browser.renameSession') : t('browser.renameWorkspace'),
+            onClose: () => setDialog(null),
+          },
+            h(RenameDialogContent, {
+              t,
+              initialValue: typeof dialog.initial === 'string' ? dialog.initial : '',
+              description: dialog.kind === 'renameSession' ? t('remoteSettings.sessionTitle') : tab.label,
+              label: dialog.kind === 'renameSession' ? t('browser.sessionPlaceholder') : t('browser.projectPlaceholder'),
+              placeholder: dialog.kind === 'renameSession' ? t('browser.sessionPlaceholder') : t('browser.projectPlaceholder'),
+              saving: dialog.saving === true,
+              error: typeof dialog.error === 'string' ? dialog.error : '',
+              onCancel: () => setDialog(null),
+              onSubmit: (value) => void submitRename(value),
+            }),
+          )
         }
 
-        const connectionState = status !== null && status.connection !== null && typeof status.connection === 'object' && typeof status.connection.state === 'string'
-          ? status.connection.state
-          : 'unconfigured'
-        const view = narrow ? mobileView : 'list'
+        const createDialog = () => {
+          if (dialog === null || dialog.kind !== 'create') return null
+          const tab = tabs.find((item) => item.key === dialog.tabKey)
+          if (tab === undefined) return null
+          const entry = trees[tab.key]
+          return h(Sheet, { t, title: t('browser.newTitle'), onClose: () => setDialog(null) },
+            h(CreateSessionDialogContent, {
+              t,
+              tab,
+              tree: entry !== undefined ? entry.tree : null,
+              initialWorkspaceId: dialog.workspaceId,
+              saving: dialog.saving === true,
+              error: typeof dialog.error === 'string' ? dialog.error : '',
+              onCancel: () => setDialog(null),
+              onSubmit: (values) => void submitCreate(values),
+            }),
+          )
+        }
 
-        return h('div', { className: 'dsh-link-page', 'data-view': view },
+        return h('div', { className: 'dsh-link-page' },
           h('style', null, CSS),
-          h('header', { className: 'dsh-link-header' },
-            h('div', { className: 'dsh-link-header-brand' },
-              h('span', { className: 'dsh-link-brand-mark' }, h(PanelIcon, { size: 22, active: true })),
-              h('div', { className: 'dsh-link-header-titles' },
-                h('h1', { className: 'dsh-link-header-title' }, t('title')),
-                h('div', { className: 'dsh-link-header-sub' },
-                  h('span', { className: cls('dsh-link-dot', connectionTone(connectionState)) }),
-                  h('span', null, localDevice !== null && typeof localDevice.name === 'string' && localDevice.name !== '' ? localDevice.name : t('connection.unconfigured')),
-                  h('span', null, '·'),
-                  h('span', null, t(connectionKey(connectionState))),
-                ),
-              ),
+          h('div', { className: 'dsh-link-tabbar' },
+            h('div', { className: 'dsh-link-tablist', role: 'tablist' },
+              ...tabs.map((tab) => h('button', {
+                key: tab.key,
+                type: 'button',
+                role: 'tab',
+                className: cls('dsh-link-tab', tab.key === activeTab.key ? 'is-active' : ''),
+                'aria-selected': tab.key === activeTab.key,
+                title: tab.local
+                  ? (localDevice !== null && typeof localDevice.name === 'string' ? localDevice.name : t('browser.tabLocal'))
+                  : `${tab.label} · ${platformLabel(t, tab.device !== null ? tab.device.platform : 'unknown')}`,
+                onClick: () => {
+                  setActiveKey(tab.key)
+                  setMenu(null)
+                },
+              },
+                h('span', { className: 'dsh-link-tab-label' }, tab.label),
+              )),
             ),
-            h('div', { className: 'dsh-link-header-meta' },
-              configured && peers.length > 0
-                ? h('span', { className: 'dsh-link-pill' }, t('remote.online', { n: peers.length }))
-                : null,
-              h('div', { className: 'dsh-link-header-actions' },
-                h('button', { type: 'button', className: 'dsh-link-btn is-ghost is-icon', onClick: refreshAll, 'aria-label': t('refresh'), title: t('refresh') }, h(RefreshGlyph)),
-                h('button', { type: 'button', className: 'dsh-link-btn is-ghost is-icon', onClick: () => setSheet('settings'), 'aria-label': t('settings'), title: t('settings') }, h(SettingsGlyph)),
-              ),
+            h('div', { className: 'dsh-link-tabbar-actions' },
+              h('span', { className: cls('dsh-link-dot', connectionTone(connectionState)), title: t(connectionKey(connectionState)) }),
+              h('button', { type: 'button', className: 'dsh-link-btn is-ghost is-icon', 'aria-label': t('settings'), title: t('settings'), onClick: () => setDialog({ kind: 'settings' }) }, h(SettingsGlyph)),
             ),
           ),
-          h('div', { className: 'dsh-link-body' },
-            narrow && mobileView === 'chat' ? null : renderList(),
-            narrow && mobileView === 'list' ? null : renderRight(),
-          ),
-          sheet === 'settings'
-            ? h(Sheet, { t, title: t('settings.title'), wide: true, onClose: () => setSheet(null) },
+          statusError !== '' && status !== null
+            ? h('div', { className: 'dsh-link-banner is-error', role: 'alert' },
+                h('span', null, statusError),
+                h('button', { type: 'button', className: 'dsh-link-btn is-small', onClick: () => void loadStatus(true) }, t('retry')),
+              )
+            : null,
+          h('div', { className: 'dsh-link-tabs-body' }, renderBrowser()),
+          dialog !== null && dialog.kind === 'settings'
+            ? h(Sheet, { t, title: t('settings.title'), wide: true, onClose: () => setDialog(null) },
                 h(LinkSettingsPanel, {
                   ctx,
                   t,
                   variant: 'sheet',
                   onChanged: () => {
                     void loadStatus(true)
+                    void loadTree(activeKey, { force: true })
                   },
                 }),
               )
             : null,
-          sheet !== null && sheet !== 'settings' && typeof sheet === 'object' && sheet.type === 'new'
-            ? h(Sheet, { t, title: t('newSession.title'), onClose: () => setSheet(null) },
-                (() => {
-                  const device = peers.find((peer) => peer.id === sheet.deviceId)
-                  if (device === undefined) return h('p', { className: 'dsh-link-hint' }, t('noPeers'))
-                  return h(NewSessionPanel, {
-                    ctx,
-                    t,
-                    device,
-                    onClose: () => setSheet(null),
-                    onCreated: (sessionId) => onCreated(device.id, sessionId),
-                  })
-                })(),
-              )
+          renameDialog(),
+          createDialog(),
+          toast !== null
+            ? h('div', { className: cls('dsh-link-toast', toast.kind === 'error' ? 'is-error' : 'is-ok'), role: toast.kind === 'error' ? 'alert' : 'status' }, toast.text)
             : null,
         )
       }
@@ -2458,7 +3616,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale'],
+      inject: ['slots', 'locale', 'uiWorkspace'],
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, {
           zh: LOCALE_DICTS.zh,
@@ -2470,6 +3628,7 @@ window.__ModuleLoader__.load({
         const SettingsPage = createSettingsPage(ctx, t)
         const RemoteBadge = createRemoteBadge(t)
         const RemoteHeaderBadge = createRemoteHeaderBadge(t)
+        const RemoteSettingsRowAction = createRemoteSettingsRowAction(t)
 
         ctx.effect(() => {
           void refreshMirrors(true)
@@ -2507,6 +3666,18 @@ window.__ModuleLoader__.load({
           id: 'dsh-link-remote',
           order: 30,
         }, RemoteHeaderBadge))
+
+        ctx.slots.inject('sidebar.workspaces.session.row.action', () => ctx.slots.register({
+          name: 'sidebar.workspaces.session.row.action',
+          id: 'dsh-link-remote-settings',
+          order: 50,
+        }, RemoteSettingsRowAction))
+
+        ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+          name: 'shell.overlay',
+          id: 'dsh-link-remote-settings',
+          order: 60,
+        }, () => h(RemoteSettingsOverlay, { ctx, t })))
       },
     }
   },
