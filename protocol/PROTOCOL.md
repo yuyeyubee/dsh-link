@@ -183,6 +183,7 @@ relay 向被调方发 `{ "t":"unsub", "rid":"r7" }`，被调方必须中止对�
 | `session.prompt` | `{ "sessionId", "text", "mode"?: "queue"\|"steer" }` | `{ "accepted": true }` |
 | `session.cancel` | `{ "sessionId" }` | `{ "accepted": true }` |
 | `session.rename` | `{ "sessionId", "title" }` | `{ "title" }` |
+| `session.selectModel` | `{ "sessionId", "selection": { "provider", "model", "reasoningEffort"? } }` | `{ "selected": { "provider", "model", "reasoningEffort"? } }` |
 | `session.state` | `{ "sessionId" }` | `SessionStateView` |
 | `session.history` | `{ "sessionId", "maxMessages"? }` | `{ "records": [ChatRecord], "cursor": 123, "hasMore": false, "state": SessionStateView }` |
 | `session.follow` (流) | `{ "sessionId" }` | 见 3.4 |
@@ -192,8 +193,12 @@ relay 向被调方发 `{ "t":"unsub", "rid":"r7" }`，被调方必须中止对�
 ```json
 { "sessionId": "session-…", "title": "重构登录页", "cwd": "/Users/me/project",
   "updatedAt": 1762531200000, "running": false, "active": false,
-  "agentAvailable": true, "blank": false, "parentSessionId": null }
+  "agentAvailable": true, "blank": false, "parentSessionId": null,
+  "modelSelection": { "provider": "deepseek-account", "model": "deepseek-flash", "reasoningEffort": "high" } }
 ```
+
+- `modelSelection` 是下一次请求实际会用的选择（DSH projection 的 `next`，可能为空），
+  用于镜像/设置页展示与双向同步；调用方应把它原样放进 `session.selectModel.selection`。
 
 - 按 `updatedAt` 降序，最多 100 条；`title` 缺失时返回 `""`，App/UI 自行显示回退名。
 - `cwd` 可能缺失；`parentSessionId` 缺失为 `null`。

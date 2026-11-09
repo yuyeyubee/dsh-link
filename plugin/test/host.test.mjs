@@ -137,6 +137,20 @@ function makeServices() {
       this.lastCreate = request
       return { sessionId: 'session-new' }
     },
+    selectModelCalls: [],
+    async selectModel(request) {
+      this.selectModelCalls.push(request)
+      if (request === null || typeof request !== 'object' || typeof request.provider !== 'string' || typeof request.model !== 'string') {
+        throw new Error('session/model-unavailable: provider and model are required')
+      }
+      return {
+        selected: {
+          provider: request.provider,
+          model: request.model,
+          ...(typeof request.reasoningEffort === 'string' && request.reasoningEffort.length > 0 ? { reasoningEffort: request.reasoningEffort } : {}),
+        },
+      }
+    },
   }
   const speechToText = {
     snapshot() {
@@ -624,4 +638,218 @@ test('mirror keeps native tool events for older records without turn/step', () =
     'turn/start', 'step/start', 'assistant/message', 'tool/call', 'tool/result', 'step/end', 'turn/end',
   ])
   assert.equal(session.events.find((event) => event.type === 'tool/call').data.step, 1)
+})
+
+test('remote selectModel forwards a flat provider/model/effort request', async () => {
+  const services = makeServices()
+  const host = makeHost(services)
+  const result = await host.invokeLocal('session.selectModel', {
+    sessionId: 'session-a',
+    selection: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' },
+  })
+  assert.deepEqual(result, {
+    selected: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' },
+  })
+  assert.deepEqual(services.sessionController.selectModelCalls, [{
+    sessionId: 'session-a',
+    provider: 'deepseek-account',
+    model: 'deepseek-flash',
+    reasoningEffort: 'high',
+  }])
+  await assert.rejects(
+    host.invokeLocal('session.selectModel', { sessionId: 'session-a', selection: { provider: 'deepseek-account' } }),
+    /provider/,
+  )
+})
+
+test('model selection prefers the pending next choice over lastUsed', async () => {
+  const services = makeServices()
+  const host = makeHost(services)
+  const summary = {
+    sessionId: 'session-a',
+    updatedAt: 2,
+    projections: {
+      values: {
+        modelSelection: {
+          lastUsed: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'max' },
+          next: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' },
+        },
+      },
+    },
+  }
+  assert.deepEqual(host.selectionOfSummary(summary), {
+    provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high',
+  })
+  // Mapped summaries already carry a flat selection; both shapes must work.
+  assert.deepEqual(
+    host.selectionOfSummary({ sessionId: 'session-a', modelSelection: { provider: 'p', model: 'm', reasoningEffort: 'low' } }),
+    { provider: 'p', model: 'm', reasoningEffort: 'low' },
+  )
+  services.sessionController.list = async () => ({ items: [summary] })
+  const info = await host.sessionInfo('session-a')
+  assert.deepEqual(info.modelSelection, {
+    provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high',
+  })
+})
+
+test('peer state sync pushes a changed thinking level to the remote Session', async () => {
+  const services = makeServices()
+  const host = makeHost(services)
+  host.relay = { state: 'connected' }
+  host.saveMirrorStore = () => {}
+  host.mirrors = {
+    version: 2,
+    devices: {
+      dev_peer: {
+        name: '出差笔记本',
+        workspaces: {},
+        sessions: {
+          'session-remote': { localId: 'session-mirror', title: '远程会话', remoteSeq: 0, updatedAt: 1, createdAt: '2026-01-01T00:00:00.000Z' },
+        },
+      },
+    },
+  }
+  services.sessionController.list = async () => ({
+    items: [{
+      sessionId: 'session-mirror',
+      updatedAt: 2,
+      projections: {
+        values: {
+          modelSelection: {
+            lastUsed: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'max' },
+            next: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' },
+          },
+        },
+      },
+    }],
+  })
+  const pushes = []
+  host.remoteCall = async (_peerId, method, params) => {
+    if (method === 'session.list') {
+      return {
+        items: [{
+          sessionId: 'session-remote',
+          updatedAt: 2,
+          projections: {
+            values: {
+              modelSelection: {
+                lastUsed: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'max' },
+                next: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'max' },
+              },
+            },
+          },
+        }],
+      }
+    }
+    if (method === 'session.selectModel') {
+      pushes.push(params)
+      return { selected: params.selection }
+    }
+    return {}
+  }
+  const steady = { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'max' }
+  host.mirrorModelStates.set('session-mirror', { local: steady, remote: steady })
+  await host.syncPeerState()
+  assert.deepEqual(pushes, [{
+    sessionId: 'session-remote',
+    selection: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' },
+  }])
+  assert.deepEqual(host.mirrorModelStates.get('session-mirror'), {
+    local: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' },
+    remote: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' },
+  })
+})
+
+test('a changed mirror thinking level is pushed before the prompt is forwarded', async () => {
+  const services = makeServices()
+  const host = makeHost(services)
+  host.mirrors = {
+    version: 2,
+    devices: {
+      dev_peer: {
+        name: '出差笔记本',
+        workspaces: {},
+        sessions: {
+          'session-remote': { localId: 'session-mirror', title: '远程会话', remoteSeq: 0, updatedAt: 1, pendingUserTexts: [] },
+        },
+      },
+    },
+  }
+  host.watchMirror = () => ({ watching: false })
+  const calls = []
+  host.remoteCall = async (_peerId, method, params) => {
+    calls.push([method, params])
+    return {}
+  }
+  host.mirrorModelStates.set('session-mirror', {
+    local: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'max' },
+    remote: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'max' },
+  })
+  await host.forwardMirrorPrompt('session-mirror', '继续', {
+    provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high',
+  })
+  assert.deepEqual(calls.map(([method]) => method), ['session.selectModel', 'session.prompt'])
+  assert.deepEqual(calls[0][1], {
+    sessionId: 'session-remote',
+    selection: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' },
+  })
+  assert.deepEqual(calls[1][1], { sessionId: 'session-remote', text: '继续' })
+  assert.deepEqual(host.mirrors.devices.dev_peer.sessions['session-remote'].pendingUserTexts, ['继续'])
+
+  // A prompt that did not change the local selection does not repeat the push.
+  calls.length = 0
+  await host.forwardMirrorPrompt('session-mirror', '再来', {
+    provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high',
+  })
+  assert.deepEqual(calls.map(([method]) => method), ['session.prompt'])
+})
+
+test('remote settings gear keeps the local mirror model in step', async () => {
+  const services = makeServices()
+  const host = makeHost(services)
+  host.mirrors = {
+    version: 2,
+    devices: {
+      dev_peer: {
+        name: '出差笔记本',
+        workspaces: {},
+        sessions: {
+          'session-remote': { localId: 'session-mirror', title: '远程会话', remoteSeq: 0, updatedAt: 1 },
+        },
+      },
+    },
+  }
+  host.remoteCall = async (_peerId, method, params) => {
+    if (method === 'session.selectModel') {
+      return {
+        selected: {
+          provider: params.selection.provider,
+          model: params.selection.model,
+          reasoningEffort: params.selection.reasoningEffort,
+        },
+      }
+    }
+    return {}
+  }
+  const response = await handleApiRoute(new Request('http://localhost/api/dsh-link', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      op: 'selectModel',
+      deviceId: 'dev_peer',
+      sessionId: 'session-remote',
+      selection: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' },
+    }),
+  }), host)
+  assert.equal(response.status, 200)
+  assert.deepEqual(services.sessionController.selectModelCalls, [{
+    sessionId: 'session-mirror',
+    provider: 'deepseek-account',
+    model: 'deepseek-flash',
+    reasoningEffort: 'high',
+  }])
+  assert.deepEqual(host.mirrorModelStates.get('session-mirror'), {
+    local: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' },
+    remote: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' },
+  })
 })

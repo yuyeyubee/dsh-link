@@ -34,7 +34,7 @@ export const name = 'dsh-link'
 export const inject = ['tools', 'systemPrompt', 'credentials']
 
 /** Version reported to peers and the Web UI. */
-const VERSION = '1.1.0'
+const VERSION = '1.1.1'
 /** On-disk config document version. */
 const CONFIG_VERSION = 1
 /** Same-origin API route used by the Client half. */
@@ -2142,7 +2142,7 @@ class LinkHost {
   }
 
   /** Forward a native mirror prompt to the remote Host. */
-  async forwardMirrorPrompt(localSessionId, text) {
+  async forwardMirrorPrompt(localSessionId, text, selection) {
     const found = this.mirrorForLocal(localSessionId)
     if (found === undefined) throw new LinkError('not-found', '这不是远程镜像会话')
     const clean = typeof text === 'string' ? text.trim() : ''
@@ -2150,6 +2150,10 @@ class LinkHost {
     found.entry.pendingUserTexts = Array.isArray(found.entry.pendingUserTexts) ? found.entry.pendingUserTexts : []
     found.entry.pendingUserTexts.push(clean)
     this.watchMirror(localSessionId)
+    // The peer-state loop only runs every few seconds; apply a just-changed
+    // thinking level (or model) before the turn starts so this prompt cannot
+    // run with the previous remote selection.
+    await this.pushMirrorPromptSelection(localSessionId, selection)
     await this.remoteCall(found.deviceId, 'session.prompt', { sessionId: found.remoteSessionId, text: clean }, 30_000)
   }
 
@@ -2190,7 +2194,7 @@ class LinkHost {
         if (found.entry.lastForwardedTurn !== payload.turn) {
           found.entry.lastForwardedTurn = payload.turn
           this.appendMirrorUserText(found.entry, text)
-          void this.forwardMirrorPrompt(localSessionId, text).catch((error) => {
+          void this.forwardMirrorPrompt(localSessionId, text, payload.modelSelection).catch((error) => {
             this.log('warn', `dsh-link: mirror forward failed: ${errorMessage(error)}`)
           })
         }
@@ -2248,6 +2252,18 @@ class LinkHost {
       if (workspace !== undefined) await workspace.attachSession(localSessionId)
     } catch {
       // grouping is cosmetic; the mirror mapping still routes prompts
+    }
+    // A Session created locally inside a mirrored project keeps the model and
+    // thinking level the user sees in the composer; apply them to the fresh
+    // remote Session before the first prompt.
+    try {
+      const summaries = await this.sessionList()
+      const localSelection = this.selectionOfSummary(summaries.find((item) => item.sessionId === localSessionId))
+      if (localSelection !== null) {
+        await this.pushMirrorModel(peer.id, remoteSessionId, localSessionId, localSelection)
+      }
+    } catch (error) {
+      this.log('warn', `dsh-link: mirror model initial push ${remoteSessionId}: ${errorMessage(error)}`)
     }
     if (typeof text === 'string' && text.trim().length > 0) {
       await this.remoteCall(peer.id, 'session.prompt', { sessionId: remoteSessionId, text }, 30_000)
@@ -2431,6 +2447,13 @@ class LinkHost {
           entry.remoteSeq = -1
           await target.workspace.attachSession(created.sessionId).catch(() => {})
           if (entry.archiveLocal === true) await this.applyMirrorArchive(entry.localId, true).catch(() => {})
+          // A fresh mirror starts from the remote Session's model and thinking
+          // level, so the native composer shows what the remote will use.
+          const remoteSelection = this.normalizeModelSelection(item.modelSelection)
+          if (remoteSelection !== null) {
+            await this.applyMirrorModel(entry.localId, remoteSelection).catch(() => {})
+            this.mirrorModelStates.set(entry.localId, { local: remoteSelection, remote: remoteSelection })
+          }
         } catch (error) {
           this.log('warn', `dsh-link: mirror create ${remoteSessionId}: ${errorMessage(error)}`)
           continue
@@ -2452,12 +2475,15 @@ class LinkHost {
     }
   }
 
-  /** Normalize one model selection projection. */
+  /** Normalize one model selection: a flat selection or the projection wire view. */
   normalizeModelSelection(value) {
     if (value === null || typeof value !== 'object') return null
-    const used = value.lastUsed !== undefined && value.lastUsed !== null
-      ? value.lastUsed
-      : (value.next !== undefined && value.next !== null ? value.next : value)
+    // The core projection wire view is `{ lastUsed, next }`. `next` is the
+    // choice the next request will use, so it is the state to synchronize:
+    // `lastUsed` lags behind right after the user changes model or effort.
+    const used = value.next !== undefined || value.lastUsed !== undefined
+      ? (value.next ?? value.lastUsed)
+      : value
     if (used === null || typeof used !== 'object') return null
     if (typeof used.provider !== 'string' || used.provider.length === 0) return null
     if (typeof used.model !== 'string' || used.model.length === 0) return null
@@ -2465,9 +2491,15 @@ class LinkHost {
     return { provider: used.provider, model: used.model, ...(reasoningEffort !== '' ? { reasoningEffort } : {}) }
   }
 
-  /** Read the model selection projection from one Session summary. */
+  /** Read the model selection of one Session summary (mapped or raw core shape). */
   selectionOfSummary(summary) {
-    const projections = summary?.projections?.values ?? summary?.projections
+    if (summary === null || typeof summary !== 'object') return null
+    // Session lists pass through mapSessionSummary, which already flattens the
+    // projection into `modelSelection`. Raw core summaries keep the wire view
+    // under `projections`.
+    const mapped = this.normalizeModelSelection(summary.modelSelection)
+    if (mapped !== null) return mapped
+    const projections = summary.projections?.values ?? summary.projections
     if (projections === null || typeof projections !== 'object') return null
     return this.normalizeModelSelection(projections.modelSelection)
   }
@@ -2496,6 +2528,41 @@ class LinkHost {
       ...(typeof selection.reasoningEffort === 'string' && selection.reasoningEffort !== '' ? { reasoningEffort: selection.reasoningEffort } : {}),
     })
     return true
+  }
+
+  /** Push one mirror selection to the remote Host and record the applied state. */
+  async pushMirrorModel(peerId, remoteId, localId, selection) {
+    // The remote Host adapts this selection to its Session controller's flat
+    // request shape. Keep `selection` on the wire: the client protocol and the
+    // model settings panel both use it.
+    const result = await this.remoteCall(peerId, 'session.selectModel', { sessionId: remoteId, selection }, 20_000)
+    const applied = this.normalizeModelSelection(result?.selected) ?? selection
+    if (typeof localId === 'string' && localId.length > 0) {
+      this.mirrorModelStates.set(localId, { local: applied, remote: applied })
+    }
+    return applied
+  }
+
+  /** Push a locally changed mirror selection before forwarding its prompt. */
+  async pushMirrorPromptSelection(localSessionId, selection) {
+    const found = this.mirrorForLocal(localSessionId)
+    if (found === undefined) return false
+    const current = this.normalizeModelSelection(selection)
+    if (current === null) return false
+    const previous = this.mirrorModelStates.get(localSessionId)
+    // The 5s peer-state loop settles unknown or conflicting state. Here only a
+    // clear local change wins, so forwarding a prompt never clobbers a remote
+    // choice that has not been pulled down yet.
+    if (previous === undefined) return false
+    if (this.sameModelSelection(current, previous.local)) return false
+    if (!this.sameModelSelection(previous.local, previous.remote)) return false
+    try {
+      await this.pushMirrorModel(found.deviceId, found.remoteSessionId, localSessionId, current)
+      return true
+    } catch (error) {
+      this.log('warn', `dsh-link: mirror model push before prompt ${found.remoteSessionId}: ${errorMessage(error)}`)
+      return false
+    }
   }
 
   /** Keep mirror model state aligned with the online remote Host. */
@@ -2543,8 +2610,7 @@ class LinkHost {
             const remoteChanged = !this.sameModelSelection(remoteSelection, previous.remote)
             if (localChanged && !remoteChanged && localSelection !== null) {
               try {
-                await this.remoteCall(peer.id, 'session.selectModel', { sessionId: remoteId, selection: localSelection }, 20_000)
-                this.mirrorModelStates.set(localId, { local: localSelection, remote: localSelection })
+                await this.pushMirrorModel(peer.id, remoteId, localId, localSelection)
               } catch (error) {
                 this.log('warn', `dsh-link: mirror model push ${remoteId}: ${errorMessage(error)}`)
               }
@@ -2805,10 +2871,7 @@ class LinkHost {
         // keep the projection fallback
       }
     }
-    const selection = projections.modelSelection
-    const modelSelection = selection !== null && typeof selection === 'object'
-      ? (selection.lastUsed ?? selection.next ?? null)
-      : null
+    const modelSelection = this.normalizeModelSelection(projections.modelSelection)
     let state = null
     try {
       state = await this.sessionState(id, AbortSignal.timeout(10_000))
@@ -2932,7 +2995,19 @@ class LinkHost {
         const sessionId = this.requireSessionId(params?.sessionId)
         const selection = params?.selection
         if (selection === null || typeof selection !== 'object') throw new LinkError('bad-request', '缺少 selection')
-        return await this.requireSessions().selectModel({ sessionId, selection }, signal ?? AbortSignal.timeout(RPC_TIMEOUT_MS))
+        // The DSH session controller takes a flat request. Flattening here keeps
+        // the relay contract (`{ sessionId, selection }`) stable for old and new
+        // peers while still applying both the model and the thinking level.
+        const provider = typeof selection.provider === 'string' ? selection.provider.trim() : ''
+        const model = typeof selection.model === 'string' ? selection.model.trim() : ''
+        if (provider.length === 0 || model.length === 0) throw new LinkError('bad-request', '缺少 provider 或 model')
+        const request = {
+          sessionId,
+          provider,
+          model,
+          ...(typeof selection.reasoningEffort === 'string' && selection.reasoningEffort.length > 0 ? { reasoningEffort: selection.reasoningEffort } : {}),
+        }
+        return await this.requireSessions().selectModel(request, signal ?? AbortSignal.timeout(RPC_TIMEOUT_MS))
       }
       case 'speech.status':
         return this.speechStatus()
@@ -3652,6 +3727,19 @@ async function handleApiRoute(request, host) {
           sessionId: body.sessionId,
           selection: body.selection,
         })
+        // Keep the open native mirror aligned so the next forwarded prompt does
+        // not push the old selection back over this explicit remote change.
+        const applied = host.normalizeModelSelection(result?.selected) ?? host.normalizeModelSelection(body.selection)
+        const mirror = host.mirrorForRemote(peer.id, body.sessionId)
+        if (mirror !== undefined && applied !== null) {
+          try {
+            if (await host.applyMirrorModel(mirror.entry.localId, applied)) {
+              host.mirrorModelStates.set(mirror.entry.localId, { local: applied, remote: applied })
+            }
+          } catch (error) {
+            host.log('warn', `dsh-link: mirror model settings push ${mirror.entry.localId}: ${errorMessage(error)}`)
+          }
+        }
         return jsonResponse(200, { ok: true, result })
       }
       case 'rename': {
