@@ -13,7 +13,7 @@
 ## What it does
 
 - **Multi-computer link**: install the same DSH plugin on each computer and paste one pairing code. Traffic goes through your own relay over the public internet; no public IP, port forwarding, NAT traversal, or VPN is required on the computers.
-- **Remote Sessions in the DSH sidebar**: each remote project becomes a `[Remote] <project> · <device>` group under **Workspaces**; its Session rows carry a **Remote** badge and open in the **native DSH conversation**, not a plugin page.
+- **Browser-style workspace tabs**: the DSH **Workspaces** area becomes a tab bar — the first tab is **This computer**, and every online computer gets its own tab with that computer's project/Session tree. Each tab supports search, archive, rename, new Session, and remote model/reasoning/plugin-preset settings.
 - **Native remote conversation**: remote messages, tool calls/results and turn state render in the normal chat. Typing into the native composer forwards the prompt to the remote DSH and streams its reply back; the local model is gated off.
 - **The local agent can drive another computer**: `link_sessions` / `link_read` / `link_prompt` / `link_create` / `link_cancel` tools let the AI on computer A operate DSH on computer B.
 - **Android app**: one app connects to multiple computers, browses and drives Sessions, supports dark/light themes and **foldables** (e.g. Huawei Mate X7) with a hinge-aware two-pane layout.
@@ -41,7 +41,7 @@
 ```
 
 - **Plugin Host half** (`plugin/index.js`): pairing, relay client, remote Session RPC, local DSH adapters, speech recognition, agent tools, same-origin HTTP API.
-- **Plugin Web UI half** (`plugin/client.js`): mirrors remote Sessions into native workspaces/Sessions, adds the Remote badges and header device chip, and keeps the settings page.
+- **Plugin Web UI half** (`plugin/client.js`): replaces the sidebar Workspaces region with per-computer tabs, loads local/remote project trees, and keeps remote Sessions opening in the native DSH conversation with the device chip and remote settings entry.
 - **Session mirror** (`plugin/index.js`): creates a `[Remote] <device>` workspace, mirrors the 10 most recent Sessions, subscribes to `session.follow` while a mirror is open, appends remote records as native DSH events, and rejects local model steps for mirror Sessions while forwarding the prompt to the remote Host.
 - **Relay** (`relay/`): public TLS WebSocket; device directory and forwarding only, no business data stored.
 - **Android** (`android/`): Kotlin + Jetpack Compose; multi-device Sessions, voice recording round-trip, foldable layout.
@@ -128,23 +128,23 @@ In the app:
 3. browse Sessions, send prompts, stop a running turn;
 4. tap the microphone, record, stop; the selected computer transcribes and the text returns to the editable input box — review, edit, then send.
 
-### 5. Use remote Sessions directly in the DSH workspace
+### 5. Switch computers in the DSH workspace
 
-After pairing, the DSH **Workspaces** list gains:
+After pairing, the **Workspaces** area in the DSH sidebar becomes a browser-style tab bar:
 
 ```
-📁 [Remote] My project · Home MacBook
-   ├─ Session A        Remote
-   └─ Session B        Remote
-📁 MyGitHub             ← local workspace
-...
+┌ This computer ┬ MacBook at home ┬ Travel laptop ┐
+│ local projects / Sessions                      │
+└────────────────────────────────────────────────┘
 ```
 
-- Click the folder icon before `[Remote] <project> · <device>` to expand that project's Sessions; every remote row has a **Remote** badge, local rows do not.
-- Click a remote Session to open it in the **native DSH conversation**. The header shows `Remote · <device>` beside the title; messages, tool calls/results and turns use the normal DSH UI.
-- Type in the native composer: the prompt is forwarded to that computer's DSH and its reply is appended live. The local model is blocked, so it never answers locally.
-- New remote Sessions appear under the matching `[Remote]` project workspace within about 60 seconds; opening a Session pulls the latest records immediately.
-- The **Link** sidebar entry remains as a management overview: devices, Sessions, pairing, Android hints and speech status.
+- **This computer** shows local projects and Sessions; each online computer has its own tab with its own project/Session tree, titles, paths and running state.
+- Search filters the active tab only; **Show archived**, refresh, **+** new Session, and project/Session **rename** / **archive** act on the active tab.
+- Clicking a remote Session creates its mirror on demand and opens the **native DSH conversation**: the device chip shows `Remote · <device>`, remote messages/tool results/turn state render natively, and replies stream back.
+- Prompts typed in the native composer are forwarded to that computer; the local model is gated off. The remote-settings gear in the conversation header changes the remote **model, reasoning effort and plugin/Agent preset**.
+- New remote Sessions appear within about 60 seconds; opening a tab or Session refreshes immediately.
+- The **Cross-device** entry remains for pairing, device management, Android pairing and voice status. Disable the plugin to restore DSH's built-in Workspaces list.
+
 
 ### 6. Let the agent drive another computer
 

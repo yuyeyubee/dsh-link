@@ -122,6 +122,9 @@ const devices = {
   async 'workspace.list'() {
     return { items: [{ workspaceId: 'ws-fake-1', title: 'project', path: '/Users/you/project' }] }
   },
+  async 'workspace.snapshot'() {
+    return { archivedSessionIds: [], pinnedSessionIds: [] }
+  },
   async 'session.list'() {
     return { items: sessions.map(summaryOf) }
   },
