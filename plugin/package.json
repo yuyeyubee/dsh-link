@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-link",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "Connect several DeepSeek Harness installs over your own relay: list, open, and drive remote DSH sessions from the local sidebar, and pair an Android app to the same devices.",
   "license": "MIT",
