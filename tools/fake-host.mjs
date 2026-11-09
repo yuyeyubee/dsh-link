@@ -111,6 +111,13 @@ function summaryOf(session) {
     blank: session.records.length === 0,
     parentSessionId: null,
     archived: session.archived === true,
+    projections: {
+      values: {
+        title: session.title,
+        modelSelection: session.modelSelection,
+        agentPreset: session.agentPreset,
+      },
+    },
   }
 }
 
