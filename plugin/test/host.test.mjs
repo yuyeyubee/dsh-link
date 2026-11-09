@@ -500,6 +500,23 @@ test('streaming preference persists and gates transient mirror frames', async ()
   assert.equal(host.emitted.at(-1).payload.frame.type, 'start')
 })
 
+test('changing the streaming setting reopens open mirror watches', async () => {
+  const host = makeHost(makeServices())
+  let cancelled = 0
+  const watched = []
+  host.mirrorWatches.set('session-local', { cancel: () => { cancelled += 1 } })
+  host.watchMirror = (sessionId) => {
+    watched.push(sessionId)
+    return { watching: true }
+  }
+  await host.updateSettings({ streaming: false })
+  assert.equal(cancelled, 1)
+  assert.deepEqual(watched, ['session-local'])
+  await host.updateSettings({ streaming: false })
+  assert.equal(cancelled, 1)
+  assert.deepEqual(watched, ['session-local'])
+})
+
 test('follow without the assistant stream drops live frames and the baseline', async () => {
   const services = makeServices()
   let request
