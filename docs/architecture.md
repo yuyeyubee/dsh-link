@@ -70,8 +70,10 @@
    Web UI，于是镜像会话也能像原生会话一样逐字流式显示；
 4. 在原生输入框发送时，`agent/pre-step` 门禁拦截本机模型请求，把 prompt 转发到远程 Host，
    远程回复再通过 watch 追加回来；
-5. 镜像映射存于 `~/.dsh/dsh-link/mirrors.json`（0600），只含设备名、标题、远程 seq，
-   不含 token。
+5. 镜像映射存于 `~/.dsh/dsh-link/mirrors.json`（0600），包含设备名、标题、远程 seq、
+   本地镜像 id、归档方向（`archiveLocal` / `archiveRemote`）和离线隐藏标记
+   `offlineHidden`；不含 token。映射在远程离线时保留，重连后复用同一镜像会话，
+   归档方向也只由 `syncPeerArchives` 更新，镜像刷新不会改动它。
 
 这样侧边栏分组、会话行、对话 UI、工具卡片全部复用 DSH 原生实现；插件页面只保留为
 设备/配对/Android 管理入口。

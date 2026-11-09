@@ -728,9 +728,7 @@ class LinkHost {
     this.archiveTimer = undefined
     this.mirrorSyncTimer = undefined
     this.mirrorSyncing = false
-    this.peerStateTimer = undefined
     this.peerStateSyncing = false
-    this.archiveTimer = undefined
     this.archiveSyncing = false
     this.mirrorArchiveStates = new Map()
     this.mirrorModelStates = new Map()
@@ -1579,15 +1577,19 @@ class LinkHost {
     }
   }
 
-  /** Delete projected Workspaces of peers that are no longer online. */
+  /** Hide projected Workspaces of peers that are no longer online. */
   async pruneOfflinePeerWorkspaces() {
     const online = new Set(this.peers.map((peer) => peer.id))
     const registry = this.service('workspaceRegistry')
     let changed = false
     for (const [deviceId, device] of Object.entries(this.mirrors.devices ?? {})) {
       if (online.has(deviceId)) continue
+      // Keep the Session mapping: it owns the local mirror id and the last
+      // archive direction. Dropping it made every reconnect mint a fresh,
+      // unarchived copy of every remote Session, so archived rows came back.
       for (const entry of Object.values(device.sessions ?? {})) {
         if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string') continue
+        entry.offlineHidden = true
         if (registry !== undefined) {
           try {
             await registry.archiveSession(entry.localId, { stopActivity: true })
@@ -1595,10 +1597,7 @@ class LinkHost {
             // already archived or gone
           }
         }
-        this.mirrorArchiveStates.delete(entry.localId)
-        this.mirrorModelStates.delete(entry.localId)
       }
-      device.sessions = {}
       const mappings = Object.values(device.workspaces ?? {})
       for (const mapping of mappings) {
         const workspaceId = mapping?.localWorkspaceId
@@ -1629,6 +1628,7 @@ class LinkHost {
   /** Push or pull archive changes for every online mirror. */
   async syncPeerArchives() {
     if (this.archiveSyncing || this.relay === undefined || this.relay.state !== 'connected') return
+    if (this.service('workspaceController') === undefined) return
     this.archiveSyncing = true
     try {
       const local = await this.workspaceSnapshot().catch(() => null)
@@ -1653,9 +1653,12 @@ class LinkHost {
     }
   }
 
-  /** Apply one mirror's persisted archive direction. Local changes win. */
+  /** Apply one mirror's persisted archive direction. A real user change wins. */
   async syncOneMirrorArchive(peer, remoteId, entry, localArchived, remoteArchived) {
-    if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string' || remoteArchived === null) return
+    if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string') return
+    if (typeof localArchived?.has !== 'function' || typeof remoteArchived?.has !== 'function') return
+    // Hidden because the peer is offline: the plugin archived it, not the user.
+    if (entry.offlineHidden === true) return
     const localId = entry.localId
     const localNow = localArchived.has(localId)
     const remoteNow = remoteArchived.has(remoteId)
@@ -1664,7 +1667,9 @@ class LinkHost {
     const known = previousLocal !== undefined && previousRemote !== undefined
     let next
     if (!known) {
-      next = { local: localNow, remote: remoteNow }
+      // Archiving is an explicit intent, so an archived side wins on first sight.
+      const archived = localNow || remoteNow
+      next = { local: archived, remote: archived }
     } else {
       const localChanged = localNow !== previousLocal
       const remoteChanged = remoteNow !== previousRemote
@@ -2372,6 +2377,17 @@ class LinkHost {
       localSummaries = []
     }
     const localIds = new Set(localSummaries.map((item) => item.sessionId))
+    let remoteArchived
+    const loadRemoteArchived = async () => {
+      if (remoteArchived !== undefined) return remoteArchived
+      try {
+        const snapshot = await this.remoteCall(peer.id, 'workspace.snapshot', {}, 15_000)
+        remoteArchived = new Set(Array.isArray(snapshot?.archivedSessionIds) ? snapshot.archivedSessionIds : [])
+      } catch {
+        remoteArchived = new Set()
+      }
+      return remoteArchived
+    }
     for (const item of selected) {
       const remoteSessionId = item.sessionId
       const remoteWorkspace = this.remoteWorkspaceOf(item, remoteWorkspaces)
@@ -2397,6 +2413,10 @@ class LinkHost {
           workspaceId: target.key,
         }
         device.sessions[remoteSessionId] = entry
+        // A new mirror adopts the remote archive state immediately, so an
+        // archived remote Session never flashes into the local workspace.
+        entry.archiveLocal = (await loadRemoteArchived()).has(remoteSessionId)
+        entry.archiveRemote = entry.archiveLocal
       }
       entry.workspaceId = target.key
       entry.updatedAt = item.updatedAt ?? entry.updatedAt ?? 0
@@ -2406,14 +2426,18 @@ class LinkHost {
           const created = await this.requireSessions().create({ workspaceId: target.workspace.id, sessionId: entry.localId })
           entry.remoteSeq = -1
           await target.workspace.attachSession(created.sessionId).catch(() => {})
+          if (entry.archiveLocal === true) await this.applyMirrorArchive(entry.localId, true).catch(() => {})
         } catch (error) {
           this.log('warn', `dsh-link: mirror create ${remoteSessionId}: ${errorMessage(error)}`)
           continue
         }
       } else {
-        const registry = this.service('workspaceRegistry')
-        if (registry !== undefined) await registry.unarchiveSession(entry.localId).catch(() => {})
-        delete entry.offlineHidden
+        // Never touch the archive state of a known mirror here: only a peer
+        // that went offline is restored when it comes back.
+        if (entry.offlineHidden === true) {
+          if (entry.archiveLocal !== true) await this.applyMirrorArchive(entry.localId, false).catch(() => {})
+          delete entry.offlineHidden
+        }
         await target.workspace.attachSession(entry.localId).catch(() => {})
       }
       const live = this.service('sessions')?.get(entry.localId)
@@ -2470,13 +2494,12 @@ class LinkHost {
     return true
   }
 
-  /** Keep mirror archive and model state aligned with the online remote Host. */
+  /** Keep mirror model state aligned with the online remote Host. */
   async syncPeerState() {
     if (this.peerStateSyncing || this.relay === undefined || this.relay.state !== 'connected') return
     this.peerStateSyncing = true
     try {
-      const localSnapshot = await this.workspaceSnapshot().catch(() => null)
-      const localArchived = new Set(Array.isArray(localSnapshot?.archivedSessionIds) ? localSnapshot.archivedSessionIds : [])
+      // Archive direction is owned by syncPeerArchives; this loop owns models.
       const localList = await this.sessionList().catch(() => [])
       const localById = new Map((Array.isArray(localList) ? localList : []).map((item) => [item.sessionId, item]))
       for (const peer of [...this.peers]) {
@@ -2484,15 +2507,6 @@ class LinkHost {
         if (device === undefined) continue
         const entries = Object.entries(device.sessions ?? {})
         if (entries.length === 0) continue
-        let remoteArchived = null
-        try {
-          const snapshot = await this.remoteCall(peer.id, 'workspace.snapshot', {}, 15_000)
-          if (snapshot !== null && typeof snapshot === 'object') {
-            remoteArchived = new Set(Array.isArray(snapshot.archivedSessionIds) ? snapshot.archivedSessionIds : [])
-          }
-        } catch {
-          remoteArchived = null
-        }
         let remoteById = new Map()
         try {
           const list = await this.remoteCall(peer.id, 'session.list', {}, 15_000)
@@ -2503,39 +2517,6 @@ class LinkHost {
         for (const [remoteId, entry] of entries) {
           if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string') continue
           const localId = entry.localId
-          if (remoteArchived !== null) {
-            const localNow = localArchived.has(localId)
-            const remoteNow = remoteArchived.has(remoteId)
-            const previousLocal = typeof entry.archiveLocal === 'boolean' ? entry.archiveLocal : undefined
-            const previousRemote = typeof entry.archiveRemote === 'boolean' ? entry.archiveRemote : undefined
-            const known = previousLocal !== undefined && previousRemote !== undefined
-            let next = null
-            if (!known) {
-              next = { local: localNow, remote: remoteNow }
-            } else {
-              const localChanged = localNow !== previousLocal
-              const remoteChanged = remoteNow !== previousRemote
-              if (localChanged && !remoteChanged) next = { local: localNow, remote: localNow }
-              else if (remoteChanged && !localChanged) next = { local: remoteNow, remote: remoteNow }
-              else if (localChanged && remoteChanged) next = { local: localNow, remote: localNow }
-              else next = { local: localNow, remote: localNow }
-            }
-            try {
-              if (next.local !== localNow) await this.applyMirrorArchive(localId, next.local)
-              if (next.remote !== remoteNow) {
-                await this.remoteCall(peer.id, next.remote ? 'session.archive' : 'session.unarchive', { sessionId: remoteId }, 15_000)
-              }
-              entry.archiveLocal = next.local
-              entry.archiveRemote = next.remote
-              this.mirrorArchiveStates.set(localId, next)
-              let changed = false
-              if (typeof entry.archiveLocal === 'boolean' && typeof entry.archiveRemote === 'boolean') changed = true
-              if (changed) this.saveMirrorStore()
-            } catch (error) {
-              this.lastArchiveError = `sync ${remoteId}: ${errorMessage(error)}`
-              this.log('warn', `dsh-link: mirror archive sync ${remoteId}: ${errorMessage(error)}`)
-            }
-          }
           const localSummary = localById.get(localId)
           const remoteSummary = remoteById.get(remoteId)
           if (localSummary === undefined || remoteSummary === undefined) continue

@@ -453,3 +453,156 @@ test('follow opts into the assistant stream and forwards live frames', async () 
   assert.equal(streamed.frame.index, 0)
   assert.equal(streamed.frame.chunk.text, '流')
 })
+
+function makeArchiveRegistry() {
+  const archived = new Set()
+  const deletedWorkspaces = []
+  return {
+    archived,
+    deletedWorkspaces,
+    async archiveSession(sessionId) {
+      archived.add(sessionId)
+    },
+    async unarchiveSession(sessionId) {
+      archived.delete(sessionId)
+    },
+    async delete(workspaceId) {
+      deletedWorkspaces.push(workspaceId)
+    },
+    get() {
+      return undefined
+    },
+  }
+}
+
+test('mirror sync never unarchives a known mirror Session', async () => {
+  const services = makeServices()
+  const registry = makeArchiveRegistry()
+  registry.archived.add('session-mirror')
+  services.workspaceRegistry = registry
+  services.sessionController.list = async () => ({ items: [{ sessionId: 'session-mirror', cwd: '/tmp/mirror', updatedAt: 1 }] })
+  services.liveSessions.set('session-mirror', makeFakeSession('session-mirror'))
+  const host = makeHost(services)
+  host.mirrors = {
+    version: 2,
+    devices: {
+      dev_peer: {
+        name: '出差笔记本',
+        workspaces: {
+          'ws-remote': { localWorkspaceId: 'ws-local', localPath: '/tmp/mirror', title: '项目', remotePath: '/home/p', remoteWorkspaceId: 'ws-remote' },
+        },
+        sessions: {
+          'session-remote': { localId: 'session-mirror', title: '远程会话', remoteSeq: 0, updatedAt: 1, createdAt: '2026-01-01T00:00:00.000Z', workspaceId: 'ws-remote', archiveLocal: true, archiveRemote: true },
+        },
+      },
+    },
+  }
+  host.remoteCall = async (_peerId, method) => {
+    if (method === 'device.info') return { name: '出差笔记本' }
+    if (method === 'session.list') return { items: [{ sessionId: 'session-remote', title: '远程会话', cwd: '/tmp/mirror', updatedAt: 2, blank: false, parentSessionId: null }] }
+    if (method === 'workspace.list') return { items: [] }
+    if (method === 'workspace.snapshot') return { archivedSessionIds: ['session-remote'] }
+    return {}
+  }
+  host.ensureRemoteProjectWorkspace = async () => ({ workspace: { id: 'ws-local', attachSession: async () => {} }, key: '', directory: '/tmp/mirror' })
+  host.syncMirrorHistory = async () => {}
+  await host.syncPeerMirrors(host.peers[0])
+  assert.equal(registry.archived.has('session-mirror'), true)
+  const entry = host.mirrors.devices.dev_peer.sessions['session-remote']
+  assert.equal(entry.offlineHidden, undefined)
+  assert.equal(entry.archiveLocal, true)
+})
+
+test('offline prune keeps mirror ids and archive direction', async () => {  const services = makeServices()
+  const registry = makeArchiveRegistry()
+  services.workspaceRegistry = registry
+  const host = makeHost(services)
+  host.saveMirrorStore = () => {}
+  host.peers = []
+  host.mirrors = {
+    version: 2,
+    devices: {
+      dev_peer: {
+        name: '出差笔记本',
+        workspaces: { 'ws-remote': { localWorkspaceId: 'ws-local', localPath: '/tmp/mirror' } },
+        sessions: { 'session-remote': { localId: 'session-mirror', workspaceId: 'ws-remote', archiveLocal: false, archiveRemote: false } },
+      },
+    },
+  }
+  await host.pruneOfflinePeerWorkspaces()
+  const device = host.mirrors.devices.dev_peer
+  assert.equal(device.sessions['session-remote'].localId, 'session-mirror')
+  assert.equal(device.sessions['session-remote'].offlineHidden, true)
+  assert.equal(device.sessions['session-remote'].archiveLocal, false)
+  assert.equal(registry.archived.has('session-mirror'), true)
+  assert.deepEqual(registry.deletedWorkspaces, ['ws-local'])
+  assert.deepEqual(device.workspaces, {})
+})
+
+test('archive reconcile follows user changes and skips offline-hidden mirrors', async () => {  const services = makeServices()
+  const registry = makeArchiveRegistry()
+  services.workspaceRegistry = registry
+  const host = makeHost(services)
+  const calls = []
+  host.saveMirrorStore = () => {}
+  host.remoteCall = async (_peerId, method, params) => {
+    calls.push(`${method}:${params.sessionId}`)
+    return {}
+  }
+  const peer = host.peers[0]
+
+  // Local user archived the mirror: push the archive to the remote.
+  registry.archived.add('session-m')
+  const entry = { localId: 'session-m', archiveLocal: false, archiveRemote: false }
+  await host.syncOneMirrorArchive(peer, 'session-r', entry, new Set(['session-m']), new Set())
+  assert.equal(registry.archived.has('session-m'), true)
+  assert.deepEqual(calls, ['session.archive:session-r'])
+  assert.equal(entry.archiveLocal, true)
+  assert.equal(entry.archiveRemote, true)
+
+  // A freshly discovered remote archive hides the new local mirror.
+  calls.length = 0
+  const fresh = { localId: 'session-n' }
+  await host.syncOneMirrorArchive(peer, 'session-r2', fresh, new Set(), new Set(['session-r2']))
+  assert.equal(registry.archived.has('session-n'), true)
+  assert.deepEqual(calls, [])
+  assert.equal(fresh.archiveLocal, true)
+  assert.equal(fresh.archiveRemote, true)
+
+  // A mirror hidden only because its peer is offline is not user intent.
+  calls.length = 0
+  const hidden = { localId: 'session-x', offlineHidden: true, archiveLocal: false, archiveRemote: false }
+  await host.syncOneMirrorArchive(peer, 'session-rx', hidden, new Set(['session-x']), new Set())
+  assert.deepEqual(calls, [])
+  assert.equal(registry.archived.has('session-x'), false)
+})
+
+test('a new mirror of an archived remote Session is archived immediately', async () => {
+  const services = makeServices()
+  const registry = makeArchiveRegistry()
+  services.workspaceRegistry = registry
+  services.sessionController.list = async () => ({ items: [] })
+  services.sessionController.create = async (request) => ({ sessionId: request.sessionId })
+  const host = makeHost(services)
+  host.mirrors = { version: 2, devices: {} }
+  host.remoteCall = async (_peerId, method) => {
+    if (method === 'device.info') return { name: '出差笔记本' }
+    if (method === 'session.list') return { items: [{ sessionId: 'session-remote', title: '远程会话', cwd: '/tmp/mirror', updatedAt: 2, blank: false, parentSessionId: null }] }
+    if (method === 'workspace.list') return { items: [] }
+    if (method === 'workspace.snapshot') return { archivedSessionIds: ['session-remote'] }
+    return {}
+  }
+  const attached = []
+  host.ensureRemoteProjectWorkspace = async () => ({
+    workspace: { id: 'ws-local', attachSession: async (id) => attached.push(id) },
+    key: '',
+    directory: '/tmp/mirror',
+  })
+  host.syncMirrorHistory = async () => {}
+  await host.syncPeerMirrors(host.peers[0])
+  const entry = host.mirrors.devices.dev_peer.sessions['session-remote']
+  assert.equal(entry.archiveLocal, true)
+  assert.equal(entry.archiveRemote, true)
+  assert.ok(registry.archived.has(entry.localId))
+  assert.equal(entry.offlineHidden, undefined)
+})
