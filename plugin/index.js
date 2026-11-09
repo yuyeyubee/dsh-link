@@ -706,12 +706,16 @@ class LinkHost {
     this.mirrorWatches = new Map()
     this.mirrorTimer = undefined
     this.peerStateTimer = undefined
+    this.archiveTimer = undefined
     this.mirrorSyncTimer = undefined
     this.mirrorSyncing = false
     this.peerStateTimer = undefined
     this.peerStateSyncing = false
+    this.archiveTimer = undefined
+    this.archiveSyncing = false
     this.mirrorArchiveStates = new Map()
     this.mirrorModelStates = new Map()
+    this.lastArchiveError = null
   }
 
   /** Resolve a host service without failing when the composition lacks it. */
@@ -815,6 +819,7 @@ class LinkHost {
     else this.setState('unconfigured')
     this.startMirrorTimer()
     this.startPeerStateTimer()
+    this.startArchiveTimer()
   }
 
   /** Import `~/.dsh/dsh-link/pairing.txt` once, then delete it. */
@@ -902,6 +907,7 @@ class LinkHost {
   stop() {
     clearInterval(this.mirrorTimer)
     clearInterval(this.peerStateTimer)
+    clearInterval(this.archiveTimer)
     clearTimeout(this.mirrorSyncTimer)
     this.mirrorTimer = undefined
     this.mirrorSyncTimer = undefined
@@ -1581,6 +1587,77 @@ class LinkHost {
     if (changed) this.saveMirrorStore()
   }
 
+  /** Fast archive-only poll, independent of model synchronization. */
+  startArchiveTimer() {
+    clearInterval(this.archiveTimer)
+    this.archiveTimer = setInterval(() => {
+      if (this.relay?.state === 'connected') void this.syncPeerArchives()
+    }, 3_000)
+    this.archiveTimer.unref?.()
+  }
+
+  /** Push or pull archive changes for every online mirror. */
+  async syncPeerArchives() {
+    if (this.archiveSyncing || this.relay === undefined || this.relay.state !== 'connected') return
+    this.archiveSyncing = true
+    try {
+      const local = await this.workspaceSnapshot().catch(() => null)
+      const localSet = new Set(Array.isArray(local?.archivedSessionIds) ? local.archivedSessionIds : [])
+      for (const peer of [...this.peers]) {
+        const device = this.mirrors.devices?.[peer.id]
+        if (device === undefined) continue
+        let remoteSet
+        try {
+          const snapshot = await this.remoteCall(peer.id, 'workspace.snapshot', {}, 10_000)
+          remoteSet = new Set(Array.isArray(snapshot?.archivedSessionIds) ? snapshot.archivedSessionIds : [])
+        } catch (error) {
+          this.lastArchiveError = `snapshot ${peer.id}: ${errorMessage(error)}`
+          continue
+        }
+        for (const [remoteId, entry] of Object.entries(device.sessions ?? {})) {
+          await this.syncOneMirrorArchive(peer, remoteId, entry, localSet, remoteSet)
+        }
+      }
+    } finally {
+      this.archiveSyncing = false
+    }
+  }
+
+  /** Apply one mirror's persisted archive direction. Local changes win. */
+  async syncOneMirrorArchive(peer, remoteId, entry, localArchived, remoteArchived) {
+    if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string' || remoteArchived === null) return
+    const localId = entry.localId
+    const localNow = localArchived.has(localId)
+    const remoteNow = remoteArchived.has(remoteId)
+    const previousLocal = typeof entry.archiveLocal === 'boolean' ? entry.archiveLocal : undefined
+    const previousRemote = typeof entry.archiveRemote === 'boolean' ? entry.archiveRemote : undefined
+    const known = previousLocal !== undefined && previousRemote !== undefined
+    let next
+    if (!known) {
+      next = { local: localNow, remote: remoteNow }
+    } else {
+      const localChanged = localNow !== previousLocal
+      const remoteChanged = remoteNow !== previousRemote
+      if (localChanged && !remoteChanged) next = { local: localNow, remote: localNow }
+      else if (remoteChanged && !localChanged) next = { local: remoteNow, remote: remoteNow }
+      else if (localChanged && remoteChanged) next = { local: localNow, remote: localNow }
+      else next = { local: localNow, remote: remoteNow }
+    }
+    try {
+      if (next.local !== localNow) await this.applyMirrorArchive(localId, next.local)
+      if (next.remote !== remoteNow) await this.remoteCall(peer.id, next.remote ? 'session.archive' : 'session.unarchive', { sessionId: remoteId }, 15_000)
+      if (entry.archiveLocal !== next.local || entry.archiveRemote !== next.remote) {
+        entry.archiveLocal = next.local
+        entry.archiveRemote = next.remote
+        this.mirrorArchiveStates.set(localId, next)
+        this.saveMirrorStore()
+      }
+    } catch (error) {
+      this.lastArchiveError = `sync ${remoteId}: ${errorMessage(error)}`
+      this.log('warn', `dsh-link: mirror archive sync ${remoteId}: ${errorMessage(error)}`)
+    }
+  }
+
   /** Poll archive/model state for online mirrors. */
   startPeerStateTimer() {
     clearInterval(this.peerStateTimer)
@@ -2248,45 +2325,34 @@ class LinkHost {
           if (remoteArchived !== null) {
             const localNow = localArchived.has(localId)
             const remoteNow = remoteArchived.has(remoteId)
-            const previous = this.mirrorArchiveStates.get(localId)
-            if (previous === undefined) {
-              if (localNow !== remoteNow) {
-                try {
-                  await this.applyMirrorArchive(localId, remoteNow)
-                  this.mirrorArchiveStates.set(localId, { local: remoteNow, remote: remoteNow })
-                } catch (error) {
-                  this.log('warn', `dsh-link: mirror archive initial ${localId}: ${errorMessage(error)}`)
-                }
-              } else {
-                this.mirrorArchiveStates.set(localId, { local: localNow, remote: remoteNow })
-              }
+            const previousLocal = typeof entry.archiveLocal === 'boolean' ? entry.archiveLocal : undefined
+            const previousRemote = typeof entry.archiveRemote === 'boolean' ? entry.archiveRemote : undefined
+            const known = previousLocal !== undefined && previousRemote !== undefined
+            let next = null
+            if (!known) {
+              next = { local: localNow, remote: remoteNow }
             } else {
-              const localChanged = localNow !== previous.local
-              const remoteChanged = remoteNow !== previous.remote
-              if (localChanged && !remoteChanged) {
-                try {
-                  await this.remoteCall(peer.id, localNow ? 'session.archive' : 'session.unarchive', { sessionId: remoteId }, 15_000)
-                  this.mirrorArchiveStates.set(localId, { local: localNow, remote: localNow })
-                } catch (error) {
-                  this.log('warn', `dsh-link: mirror archive push ${remoteId}: ${errorMessage(error)}`)
-                }
-              } else if (remoteChanged && !localChanged) {
-                try {
-                  await this.applyMirrorArchive(localId, remoteNow)
-                  this.mirrorArchiveStates.set(localId, { local: remoteNow, remote: remoteNow })
-                } catch (error) {
-                  this.log('warn', `dsh-link: mirror archive pull ${localId}: ${errorMessage(error)}`)
-                }
-              } else if (localChanged && remoteChanged && remoteNow !== localNow) {
-                try {
-                  await this.applyMirrorArchive(localId, remoteNow)
-                  this.mirrorArchiveStates.set(localId, { local: remoteNow, remote: remoteNow })
-                } catch (error) {
-                  this.log('warn', `dsh-link: mirror archive conflict ${localId}: ${errorMessage(error)}`)
-                }
-              } else {
-                this.mirrorArchiveStates.set(localId, { local: localNow, remote: remoteNow })
+              const localChanged = localNow !== previousLocal
+              const remoteChanged = remoteNow !== previousRemote
+              if (localChanged && !remoteChanged) next = { local: localNow, remote: localNow }
+              else if (remoteChanged && !localChanged) next = { local: remoteNow, remote: remoteNow }
+              else if (localChanged && remoteChanged) next = { local: localNow, remote: localNow }
+              else next = { local: localNow, remote: localNow }
+            }
+            try {
+              if (next.local !== localNow) await this.applyMirrorArchive(localId, next.local)
+              if (next.remote !== remoteNow) {
+                await this.remoteCall(peer.id, next.remote ? 'session.archive' : 'session.unarchive', { sessionId: remoteId }, 15_000)
               }
+              entry.archiveLocal = next.local
+              entry.archiveRemote = next.remote
+              this.mirrorArchiveStates.set(localId, next)
+              let changed = false
+              if (typeof entry.archiveLocal === 'boolean' && typeof entry.archiveRemote === 'boolean') changed = true
+              if (changed) this.saveMirrorStore()
+            } catch (error) {
+              this.lastArchiveError = `sync ${remoteId}: ${errorMessage(error)}`
+              this.log('warn', `dsh-link: mirror archive sync ${remoteId}: ${errorMessage(error)}`)
             }
           }
           const localSummary = localById.get(localId)
@@ -2715,6 +2781,46 @@ class LinkHost {
   async debugInfo(what, extra) {
     const sessions = this.service('sessionController')
     switch (what) {
+      case 'archive-state': {
+        const local = await this.workspaceSnapshot().catch(() => null)
+        const localSet = new Set(Array.isArray(local?.archivedSessionIds) ? local.archivedSessionIds : [])
+        const items = []
+        for (const peer of [...this.peers]) {
+          const device = this.mirrors.devices?.[peer.id]
+          if (device === undefined) continue
+          let remoteSet = new Set()
+          let remoteError = null
+          try {
+            const snapshot = await this.remoteCall(peer.id, 'workspace.snapshot', {}, 15_000)
+            remoteSet = new Set(Array.isArray(snapshot?.archivedSessionIds) ? snapshot.archivedSessionIds : [])
+          } catch (error) {
+            remoteError = errorMessage(error)
+          }
+          for (const [remoteId, entry] of Object.entries(device.sessions ?? {})) {
+            if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string') continue
+            items.push({
+              deviceId: peer.id,
+              remoteId,
+              localId: entry.localId,
+              title: entry.title ?? '',
+              localArchived: localSet.has(entry.localId),
+              remoteArchived: remoteSet.has(remoteId),
+              state: this.mirrorArchiveStates.get(entry.localId) ?? null,
+            })
+          }
+          if (remoteError !== null) items.push({ deviceId: peer.id, error: remoteError })
+        }
+        return { lastArchiveError: this.lastArchiveError, items }
+      }
+      case 'archive-probe': {
+        const peer = this.resolvePeer(extra?.device)
+        try {
+          await this.remoteCall(peer.id, 'session.archive', { sessionId: '__dshlink_probe__' }, 15_000)
+          return { device: peer.id, ok: true }
+        } catch (error) {
+          return { device: peer.id, ok: false, error: errorMessage(error) }
+        }
+      }
       case 'config':
         return {
           config: this.config === undefined ? null : { ...this.config, relayUrl: this.config.relayUrl },
@@ -3145,7 +3251,7 @@ function toolDefinitions(host) {
       parameters: {
         type: 'object',
         properties: {
-          what: { type: 'string', enum: ['config', 'sessions', 'titles', 'workspaces', 'speech', 'events', 'raw', 'list', 'state', 'follow', 'speech-test', 'mirror-probe', 'mirror-list', 'mirror-cleanup', 'types', 'tree', 'remote-tree', 'ensure-mirror', 'workspace-snapshot', 'models', 'presets', 'session-info'] },
+          what: { type: 'string', enum: ['config', 'sessions', 'titles', 'workspaces', 'speech', 'events', 'raw', 'list', 'state', 'follow', 'speech-test', 'mirror-probe', 'mirror-list', 'mirror-cleanup', 'types', 'tree', 'remote-tree', 'ensure-mirror', 'workspace-snapshot', 'models', 'presets', 'session-info', 'archive-state', 'archive-probe'] },
           session_id: { type: 'string', description: 'Required when what is events/raw/state/follow.' },
           before_seq: { type: 'number', description: 'Optional raw-event page cursor.' },
           device: { type: 'string', description: 'Target peer for mirror-probe.' },
