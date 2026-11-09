@@ -65,9 +65,11 @@
    `turn`/`step`/`callId`/`arguments` 与结果消息，因此复用 DSH 原生工具卡片（默认折叠），
    不再拼成展开的文本；
 3. 打开镜像会话时，Web UI 的会话头组件向 Host 发 `watch`，Host 订阅远程
-   `session.follow`（`assistantStream: true`），提交记录继续追加到本机会话日志；远程正在生成
-   时，瞬时 `assistant-stream` 分片通过本机 Cordis 的 `agent/assistant-stream` 事件转发给
-   Web UI，于是镜像会话也能像原生会话一样逐字流式显示；
+   `session.follow`（`assistantStream` 跟随设置，默认 `true`），提交记录继续追加到本机会话
+   日志；远程正在生成时，瞬时 `assistant-stream` 分片通过本机 Cordis 的
+   `agent/assistant-stream` 事件转发给 Web UI，于是镜像会话也能像原生会话一样逐字流式显示。
+   在「设置 → 跨设备 → 流式输出」关闭后，Host 不再请求/转发瞬时分片，已打开的 watch 会
+   立即重订阅，回复只在提交为 `assistant/message` 后整段出现；
 4. 在原生输入框发送时，`agent/pre-step` 门禁拦截本机模型请求，把 prompt 转发到远程 Host，
    并在转发前用 `agent/pre-step` 携带的 `modelSelection` 把本机刚改过的模型/思考强度推给
    远程（`session.selectModel`），避免这一轮仍用旧等级；远程回复再通过 watch 追加回来；

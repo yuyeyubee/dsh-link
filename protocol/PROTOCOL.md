@@ -249,6 +249,9 @@ Host 把 DSH 会话事件映射为下表的记录；**只读**，不改变本地
 ```
 
 - `snapshot` 必发一次，取最近 ≤ 60 条记录（`cursor` 为最后一条记录的 `seq`，无记录为 `-1`）。
+- 订阅参数可带 `assistantStream: false`：被调方不发送 `assistant-stream` 帧，`snapshot` 也不带
+  `assistantStream` 字段（`assistantStream: true` 或缺省时保持旧行为）。`start`/`chunk`/`end`
+  仍是瞬态可选项，接收端必须能在没有它们时正常工作。
 - `assistantStream` 是该会话当前未提交助手 attempt 的实时基线：`activeAttempt` 为空对象/缺省表示当前没有流式输出；`stream` 是已产生的 chunk 列表，`nextIndex` 是下一个 chunk 下标，`revision` 是进程内单调版本号。
 - 之后每个提交事件按 3.3 映射后发 `record`；`turn-start`/`turn-end` 后补发一次 `state`。
 - `assistant-stream` 帧是**瞬态呈现数据**，不进入会话日志，仅用于让订阅端边生成边显示。`frame` 复用 DSH 的 Assistant frame 形状：

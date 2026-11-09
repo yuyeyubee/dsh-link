@@ -468,6 +468,77 @@ test('follow opts into the assistant stream and forwards live frames', async () 
   assert.equal(streamed.frame.chunk.text, '流')
 })
 
+test('streaming preference persists and gates transient mirror frames', async () => {
+  const services = makeServices()
+  const host = makeHost(services)
+  assert.deepEqual((await host.status()).settings, { streaming: true })
+
+  const off = await host.updateSettings({ streaming: false })
+  assert.deepEqual(off.settings, { streaming: false })
+  assert.equal(host.streamingEnabled(), false)
+  const saved = JSON.parse(readFileSync(join(process.env.DSH_HOME, 'dsh-link', 'config.json'), 'utf8'))
+  assert.equal(saved.streaming, false)
+
+  const session = makeFakeSession('session-quiet')
+  services.liveSessions.set('session-quiet', session)
+  const entry = { localId: 'session-quiet', remoteSeq: -1, pendingUserTexts: [] }
+  host.publishMirrorAssistantBaseline(entry, session, {
+    revision: 0,
+    activeAttempt: { attemptId: 'attempt-off', turn: 1, step: 1, nextIndex: 1, stream: [{ time: 1, chunk: { type: 'text-delta', text: '隐' } }] },
+  })
+  assert.equal(host.emitted.length, 0)
+
+  const response = await handleApiRoute(new Request('http://localhost/api/dsh-link', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ op: 'settings', streaming: true }),
+  }), host)
+  const payload = await response.json()
+  assert.equal(response.status, 200)
+  assert.deepEqual(payload.status.settings, { streaming: true })
+  host.publishMirrorAssistantStart(entry, session, { attemptId: 'attempt-on', turn: 1, step: 1 })
+  assert.equal(host.emitted.at(-1).payload.frame.type, 'start')
+})
+
+test('follow without the assistant stream drops live frames and the baseline', async () => {
+  const services = makeServices()
+  let request
+  services.sessionController.follow = async function* (value) {
+    request = value
+    yield { type: 'snapshot', cursor: 0, records: [], projections: {}, assistantStream: { revision: 3 } }
+    yield { type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'a', revision: 4, index: 0, time: 1, chunk: { type: 'text-delta', text: '流' } } }
+  }
+  const host = makeHost(services)
+  const frames = []
+  for await (const frame of host.followSession('session-a', new AbortController().signal, { assistantStream: false })) frames.push(frame)
+  assert.equal(request.assistantStream, false)
+  assert.equal(frames.find((frame) => frame.t === 'snapshot').assistantStream, undefined)
+  assert.equal(frames.some((frame) => frame.t === 'assistant-stream'), false)
+})
+
+test('HTTP stream route strips live frames when streaming is off', async () => {
+  const host = makeHost(makeServices())
+  host.config = { ...host.config, streaming: false }
+  host.remoteSubscribe = (_device, _method, params, handlers) => {
+    assert.equal(params.assistantStream, false)
+    setTimeout(() => {
+      handlers.onEvent({ t: 'ready', sessionId: 'session-a' })
+      handlers.onEvent({ t: 'snapshot', records: [], cursor: -1, state: { running: false }, assistantStream: { revision: 2 } })
+      handlers.onEvent({ t: 'assistant-stream', frame: { type: 'chunk', attemptId: 'a', revision: 3, index: 0, time: 1, chunk: { type: 'text-delta', text: '隐' } } })
+      handlers.onEnd()
+    }, 0)
+    return { cancel() {} }
+  }
+  const response = await handleStreamRoute(new Request('http://localhost/api/dsh-link/stream', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ op: 'follow', deviceId: 'dev_peer', sessionId: 'session-a' }),
+  }), host)
+  const lines = (await response.text()).trim().split('\n').map((line) => JSON.parse(line))
+  assert.equal(lines.some((line) => line.type === 'assistant-stream'), false)
+  assert.equal(lines.find((line) => line.type === 'snapshot').assistantStream, undefined)
+})
+
 function makeArchiveRegistry() {
   const archived = new Set()
   const deletedWorkspaces = []
