@@ -14,7 +14,7 @@
 
 - **Multi-computer link**: install the same DSH plugin on each computer and paste one pairing code. Traffic goes through your own relay over the public internet; no public IP, port forwarding, NAT traversal, or VPN is required on the computers.
 - **Remote Sessions in the DSH sidebar**: each remote project becomes a `[Remote] <project> · <device>` group under **Workspaces**; its Session rows carry a **Remote** badge and open in the **native DSH conversation**, not a plugin page.
-- **Native remote conversation**: remote messages, tool calls/results and turn state render in the normal chat. Typing into the native composer forwards the prompt to the remote DSH and streams its reply back; the local model is gated off.
+- **Native remote conversation**: remote messages, tool calls/results and turn state render in the normal chat, with the same collapsed-by-default tool cards and token-by-token streaming as a local turn. Typing into the native composer forwards the prompt to the remote DSH; the local model is gated off.
 - **The local agent can drive another computer**: `link_sessions` / `link_read` / `link_prompt` / `link_create` / `link_cancel` tools let the AI on computer A operate DSH on computer B.
 - **Android app**: one app connects to multiple computers, browses and drives Sessions, supports dark/light themes and **foldables** (e.g. Huawei Mate X7) with a hinge-aware two-pane layout.
 - **Voice input round-trip**: record on the phone → send to the selected computer → its local SenseVoice recognizer → **text returns to the phone's editable input box**. Audio is never sent to a cloud recognizer.
@@ -141,7 +141,7 @@ After pairing, the DSH **Workspaces** list gains:
 ```
 
 - Click the folder icon before `[Remote] <project> · <device>` to expand that project's Sessions; every remote row has a **Remote** badge, local rows do not.
-- Click a remote Session to open it in the **native DSH conversation**. The header shows `Remote · <device>` beside the title; messages, tool calls/results and turns use the normal DSH UI.
+- Click a remote Session to open it in the **native DSH conversation**. The header shows `Remote · <device>` beside the title; messages, tool calls/results and turns use the normal DSH UI, including collapsed native tool cards and live streaming while the remote turn generates.
 - Type in the native composer: the prompt is forwarded to that computer's DSH and its reply is appended live. The local model is blocked, so it never answers locally.
 - New remote Sessions appear under the matching `[Remote]` project workspace within about 60 seconds; opening a Session pulls the latest records immediately.
 - **When a remote computer goes offline, its remote project groups are removed**; they are rebuilt when it comes back online.
@@ -194,7 +194,7 @@ phone recording (16 kHz mono PCM16) → standard WAV → base64
 
 - No offline queue: a remote call fails immediately when the target computer is offline.
 - Remote Sessions are **mirrors**: only the 10 most recent non-subagent Sessions per computer are synced; deleting a remote Session does not remove its local mirror automatically.
-- Remote tool calls/results appear as text cards in the mirror; attachments, approval prompts and model switching still happen on the target computer.
+- Remote tool calls/results reuse the native DSH tool cards (collapsed by default, expandable for arguments/results); attachments and approval prompts still happen on the target computer.
 - Native composer sends use a mirror gate: the local turn ends without a model request and the remote reply is appended afterwards. Avoid sending the next prompt before the previous reply arrives.
 - A cold/closed mirror is refreshed when opened; the Host pushes live updates only while the mirror conversation is open.
 - Long tool results and text are truncated to keep relay/mobile frames bounded; read the full content on the target computer.
