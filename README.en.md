@@ -3,7 +3,7 @@
 > One private relay of your own connects **DeepSeek Harness (DSH)** installations on several computers and an **Android phone** into a private space that belongs only to you: browse and drive another computer's DSH Sessions from this one, let the local agent steer a remote DSH with tools, and use voice input on the phone while recognition stays on the target computer.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Plugin](https://img.shields.io/badge/plugin-1.2.1-brightgreen)
+![Plugin](https://img.shields.io/badge/plugin-1.2.2-brightgreen)
 ![Protocol](https://img.shields.io/badge/protocol-v1-blue)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84)
 
@@ -168,7 +168,7 @@ After pairing, **Workspaces** in the DSH sidebar looks like:
 - Each computer mirrors its **10 most recent** non-subagent Sessions (running ones are kept even beyond that), grouped by remote project. New remote Sessions appear within about 60 seconds and opening one immediately pulls the latest records.
 - **When a computer goes offline its group is removed**, and rebuilt with the same mirror Session ids when it returns — no duplicates.
 - **Creating a Session inside a remote group** creates the Session on that computer; its first prompt and every reply run there.
-- **Archive syncs both ways**: archiving a remote Session here archives it there, and archiving there brings the mirror in line. The archive direction is persisted per mirror, so refreshes and reconnects never flip it.
+- **Archive syncs both ways**: archiving a remote Session here archives it there, and archiving there brings the mirror in line. Each mirror stores the direction the user asked for separately from the temporary state the plugin writes itself: rows hidden while the peer is offline are restored with that direction (including mirrors outside the recent-ten window), and a failed push is retried on the next pass, so an unarchive is never flipped back.
 - **Model / reasoning effort sync both ways**: changing the local selector (or the remote-settings gear) reaches the computer that executes prompts within 5 seconds, and is pushed again right before a prompt is sent. Changes made there sync back to the mirror. Agent presets are controlled by the remote-settings gear.
 
 ### 2. Cross-device manager
@@ -283,7 +283,7 @@ The plugin never edits the profile's `cordis.patch.yml`; the settings page talks
 - Mirrors created before 1.1.0 keep the old text-style history; run `link_debug what=rebuild-mirrors` to rebuild them (old mirrors are archived, new ones replay remote history).
 - Sending from the native composer uses "gate the local step, forward the prompt": the local turn ends blocked and the remote reply is appended afterwards; wait for a reply before sending again.
 - Long text is truncated to keep frames bounded: user/assistant text 8 KiB, reasoning 4 KiB, tool args 4 KiB, tool results 2 KiB. The full content stays on the target computer.
-- Protocol v1 makes no cross-version compatibility promise; keep plugin, relay and app on the same version (plugin 1.2.1 / protocol v1).
+- Protocol v1 makes no cross-version compatibility promise; keep plugin, relay and app on the same version (plugin 1.2.2 / protocol v1).
 - The APK is a self-signed debug build; installing requires allowing unknown sources, and publishing to an app store needs release signing.
 
 ## Troubleshooting
@@ -321,10 +321,10 @@ Deeper design notes live in [docs/architecture.md](docs/architecture.md); instal
 
 | Component | Version | Notes |
 | --- | --- | --- |
-| DSH Link plugin | 1.2.1 | Adds the streaming switch, the cross-device manager and remote Session settings (model/reasoning/preset/archive) |
+| DSH Link plugin | 1.2.2 | Fixes offline restore and unarchive syncing: the archive direction is persisted as user intent and hidden mirrors come back intact; includes the streaming switch, cross-device manager and remote Session settings |
 | Protocol | v1 | New fields are backwards compatible; new methods do not bump `v` |
 | Relay | 1.0.0 (protocol v1) | Node.js ≥ 20, single `ws` dependency |
-| Android app | 1.2.1 | minSdk 26 (Android 8.0+), protocol v1 |
+| Android app | 1.2.1 | minSdk 26 (Android 8.0+), protocol v1 (compatible with the 1.2.2 plugin) |
 
 If the version does not change after updating the plugin, the Host half is still running the old module in memory: toggle dsh-link off/on in Settings → Plugins, or restart DSH.
 

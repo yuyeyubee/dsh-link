@@ -80,9 +80,14 @@
    转成 DSH `sessionController.selectModel()` 需要的扁平参数
    `{ sessionId, provider, model, reasoningEffort }`；
 6. 镜像映射存于 `~/.dsh/dsh-link/mirrors.json`（0600），包含设备名、标题、远程 seq、
-   本地镜像 id、归档方向（`archiveLocal` / `archiveRemote`）和离线隐藏标记
-   `offlineHidden`；不含 token。映射在远程离线时保留，重连后复用同一镜像会话，
-   归档方向也只由 `syncPeerArchives` 更新，镜像刷新不会改动它。
+   本地镜像 id、归档方向与离线隐藏标记；不含 token。映射在远程离线时保留，重连后复用
+   同一镜像会话。归档方向拆成三份：`archiveDesired` 是用户真正想要的方向，
+   `archiveLocal` / `archiveRemote` 是两侧最后一次确认过的状态。`syncPeerArchives`
+   每 3 秒只根据「用户意图 + 两侧观察值」对账：把插件自己写入的状态（离线隐藏、新建镜像）
+   同步进观察值，避免被误判成用户操作；推送失败时只记录已确认的一侧，下一轮继续重试。
+   对端离线时插件归档的镜像行会带 `offlineHidden`，对端重新上线后由
+   `restoreHiddenMirrors` 按 `archiveDesired` 恢复并重新挂回工作区（覆盖最近 10 个之外的
+   旧镜像），随后清掉标记。
 
 这样侧边栏分组、会话行、对话 UI、工具卡片全部复用 DSH 原生实现；插件页面只保留为
 设备/配对/Android 管理入口。
