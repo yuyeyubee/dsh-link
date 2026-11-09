@@ -665,6 +665,40 @@ window.__ModuleLoader__.load({
         .dsh-link-overlay { padding: 12px; }
       }
 
+      .dsh-link-page.is-compact { height: 100%; min-height: 0; padding-top: 52px; background: var(--dsw-specific-sidebar-fill); color: var(--dsw-alias-label-primary); }
+      .dsh-link-page.is-compact .dsh-link-tabbar { padding: 5px 6px; gap: 2px; background: transparent; }
+      .dsh-link-page.is-compact .dsh-link-tablist { gap: 2px; }
+      .dsh-link-page.is-compact .dsh-link-tab { height: 25px; max-width: 118px; padding: 0 7px; border-radius: 6px; font-size: 11px; }
+      .dsh-link-page.is-compact .dsh-link-tabbar-actions { gap: 2px; padding-left: 2px; }
+      .dsh-link-page.is-compact .dsh-link-tabbar-actions .dsh-link-btn { width: 24px; height: 24px; padding: 0; }
+      .dsh-link-page.is-compact .dsh-link-tabs-body { flex: 1; min-height: 0; }
+      .dsh-link-page.is-compact .dsh-link-listpane { width: 100%; flex: 1; min-height: 0; border-right: 0; background: transparent; }
+      .dsh-link-page.is-compact .dsh-link-conv { display: none; }
+      .dsh-link-page.is-compact .dsh-link-browser { flex: 1; min-height: 0; }
+      .dsh-link-page.is-compact .dsh-link-browser-toolbar { flex-wrap: wrap; gap: 3px; padding: 5px 6px; }
+      .dsh-link-page.is-compact .dsh-link-browser-search { flex: 1 1 100%; min-width: 0; height: 26px; }
+      .dsh-link-page.is-compact .dsh-link-browser-search input { font-size: 11.5px; }
+      .dsh-link-page.is-compact .dsh-link-browser-actions { flex: 1 1 100%; justify-content: flex-end; gap: 3px; }
+      .dsh-link-page.is-compact .dsh-link-browser-actions .dsh-link-btn { height: 24px; padding: 0 6px; font-size: 10.5px; }
+      .dsh-link-page.is-compact .dsh-link-browser-actions .dsh-link-btn-label { display: none; }
+      .dsh-link-page.is-compact .dsh-link-browser-inner { padding: 0 2px 12px; }
+      .dsh-link-page.is-compact .dsh-link-project-head { padding: 5px 4px; gap: 4px; }
+      .dsh-link-page.is-compact .dsh-link-project-chevron { flex: none; }
+      .dsh-link-page.is-compact .dsh-link-project-path { display: none; }
+      .dsh-link-page.is-compact .dsh-link-project-count { display: none; }
+      .dsh-link-page.is-compact .dsh-link-project-title { font-size: 11.5px; }
+      .dsh-link-page.is-compact .dsh-link-project-actions { gap: 0; }
+      .dsh-link-page.is-compact .dsh-link-project-sessions { padding-left: 8px; }
+      .dsh-link-page.is-compact .dsh-link-browser-session { padding: 4px 5px; gap: 4px; }
+      .dsh-link-page.is-compact .dsh-link-browser-session-title { font-size: 11.5px; }
+      .dsh-link-page.is-compact .dsh-link-browser-session-meta { font-size: 10px; }
+      .dsh-link-page.is-compact .dsh-link-browser-session-badges { display: none; }
+      .dsh-link-page.is-compact .dsh-link-browser-session-actions { display: none; }
+      .dsh-link-page.is-compact .dsh-link-browser-session:hover .dsh-link-browser-session-actions { display: flex; }
+      .dsh-link-sidebar-rail { height: 100%; display: flex; flex-direction: column; align-items: center; padding-top: 8px; background: var(--dsw-specific-sidebar-fill); }
+      .dsh-link-sidebar-rail-btn { display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; border: 0; border-radius: 7px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; }
+      .dsh-link-sidebar-rail-btn:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+
       .dsh-link-remote-chip { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 999px; border: .5px solid var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); background: var(--dsw-alias-bg-layer-2); font-size: 10px; font-weight: 600; line-height: 1; letter-spacing: .02em; white-space: nowrap; flex: none; }
       .dsh-link-remote-chip.is-header { height: 22px; padding: 0 8px; font-size: 11px; font-weight: 500; }
       .dsh-link-remote-header { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
@@ -2896,8 +2930,10 @@ window.__ModuleLoader__.load({
      * showing that device's Workspace/Session tree. Clicking a session opens the
      * native DSH conversation; remote sessions are mirrored on demand first.
      */
-    function createWorkspace(ctx, t) {
-      return function LinkWorkspace() {
+    function createWorkspace(ctx, t, options) {
+      const compact = options !== undefined && options !== null && options.compact === true
+      return function LinkWorkspace(props) {
+        const wide = props === undefined || props === null || props.wide !== false
         useLocale(ctx)
         const [status, setStatus] = React.useState(null)
         const [statusPhase, setStatusPhase] = React.useState('loading')
@@ -3549,7 +3585,18 @@ window.__ModuleLoader__.load({
           )
         }
 
-        return h('div', { className: 'dsh-link-page' },
+        const pageClass = compact ? 'dsh-link-page is-compact' : 'dsh-link-page'
+        if (compact && !wide) {
+          return h('div', { className: 'dsh-link-sidebar-rail' },
+            h('button', {
+              type: 'button',
+              className: 'dsh-link-sidebar-rail-btn',
+              title: t('browser.tabLocal'),
+              onClick: () => { if (props !== undefined && props !== null && typeof props.expandSidebar === 'function') props.expandSidebar() },
+            }, h(PanelIcon, { size: 16, active: false })),
+          )
+        }
+        return h('div', { className: pageClass },
           h('style', null, CSS),
           h('div', { className: 'dsh-link-tabbar' },
             h('div', { className: 'dsh-link-tablist', role: 'tablist' },
@@ -3625,6 +3672,7 @@ window.__ModuleLoader__.load({
 
         const t = ctx.locale.bind(NS)
         const Workspace = createWorkspace(ctx, t)
+        const SidebarWorkspace = createWorkspace(ctx, t, { compact: true })
         const SettingsPage = createSettingsPage(ctx, t)
         const RemoteBadge = createRemoteBadge(t)
         const RemoteHeaderBadge = createRemoteHeaderBadge(t)
@@ -3647,6 +3695,16 @@ window.__ModuleLoader__.load({
           name: 'main',
           key: 'dsh-link',
         }, Workspace))
+
+        // A lower priority wins this single slot; -100 shadows the shipped
+        // WorkspaceBrowser with the compact, per-computer tab browser.
+        ctx.slots.inject('sidebar.workspaces', () => {
+          try {
+            return ctx.slots.register({ name: 'sidebar.workspaces', priority: -100 }, SidebarWorkspace)
+          } catch (error) {
+            return () => {}
+          }
+        })
 
         ctx.slots.inject('settings.section', () => ctx.slots.register({
           name: 'settings.section',
