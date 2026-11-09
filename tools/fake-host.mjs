@@ -52,6 +52,9 @@ const sessions = [
     agentAvailable: true,
     blank: false,
     parentSessionId: null,
+    archived: false,
+    agentPreset: 'standard',
+    modelSelection: { provider: 'fake', model: 'fake-chat', reasoningEffort: 'medium' },
     records: [
       { kind: 'user', seq: 1, time: Date.now() - 600_000, text: '帮我看看构建为什么失败' },
       { kind: 'assistant', seq: 2, time: Date.now() - 590_000, text: '我先看一下构建日志。' },
@@ -107,8 +110,11 @@ function summaryOf(session) {
     agentAvailable: true,
     blank: session.records.length === 0,
     parentSessionId: null,
+    archived: session.archived === true,
   }
 }
+
+const workspaceList = [{ workspaceId: 'ws-fake-1', title: 'project', path: '/Users/you/project' }]
 
 const devices = {
   async 'device.info'() {
@@ -120,10 +126,16 @@ const devices = {
     }
   },
   async 'workspace.list'() {
-    return { items: [{ workspaceId: 'ws-fake-1', title: 'project', path: '/Users/you/project' }] }
+    return { items: workspaceList.map((workspace) => ({ ...workspace })) }
   },
   async 'workspace.snapshot'() {
-    return { archivedSessionIds: [], pinnedSessionIds: [] }
+    return { archivedSessionIds: sessions.filter((session) => session.archived === true).map((session) => session.sessionId), pinnedSessionIds: [] }
+  },
+  async 'workspace.rename'(params) {
+    const workspace = workspaceList.find((item) => item.workspaceId === params.workspaceId)
+    if (!workspace) throw { code: 'not-found', message: 'no such workspace' }
+    workspace.title = params.title
+    return { title: params.title }
   },
   async 'session.list'() {
     return { items: sessions.map(summaryOf) }
@@ -185,6 +197,59 @@ const devices = {
     if (!session) throw { code: 'not-found', message: 'no such session' }
     session.title = params.title
     return { title: params.title }
+  },
+  async 'session.archive'(params) {
+    const session = sessions.find((item) => item.sessionId === params.sessionId)
+    if (!session) throw { code: 'not-found', message: 'no such session' }
+    session.archived = true
+    return { archived: true }
+  },
+  async 'session.unarchive'(params) {
+    const session = sessions.find((item) => item.sessionId === params.sessionId)
+    if (!session) throw { code: 'not-found', message: 'no such session' }
+    session.archived = false
+    return { archived: false }
+  },
+  async 'session.info'(params) {
+    const session = sessions.find((item) => item.sessionId === params.sessionId)
+    if (!session) throw { code: 'not-found', message: 'no such session' }
+    return {
+      sessionId: session.sessionId,
+      title: session.title,
+      cwd: session.cwd,
+      agentAvailable: true,
+      agentPreset: session.agentPreset,
+      modelSelection: session.modelSelection,
+      state: stateOf(session),
+    }
+  },
+  async 'session.selectModel'(params) {
+    const session = sessions.find((item) => item.sessionId === params.sessionId)
+    if (!session) throw { code: 'not-found', message: 'no such session' }
+    session.modelSelection = { ...params.selection }
+    return { selection: session.modelSelection }
+  },
+  async 'session.selectPreset'(params) {
+    const session = sessions.find((item) => item.sessionId === params.sessionId)
+    if (!session) throw { code: 'not-found', message: 'no such session' }
+    session.agentPreset = params.agentPreset
+    return { agentPreset: session.agentPreset }
+  },
+  async 'model.catalog'() {
+    return {
+      groups: [{
+        id: 'fake',
+        name: 'Fake Provider',
+        models: [{
+          id: 'fake-chat',
+          name: 'Fake Chat',
+          reasoning: { defaultEffort: 'medium', efforts: [{ id: 'low', name: 'Low' }, { id: 'medium', name: 'Medium' }, { id: 'high', name: 'High' }] },
+        }],
+      }],
+    }
+  },
+  async 'agent.presets'() {
+    return { presets: [{ id: 'standard', name: 'Standard', isDefault: true }, { id: 'researcher', name: 'Researcher' }] }
   },
   async 'speech.status'() {
     return { available: true, phase: 'ready', providers: [{ id: 'sensevoice-local', name: 'SenseVoiceSmall', languages: ['auto', 'zh', 'en'] }], language: 'zh' }
