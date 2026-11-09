@@ -145,6 +145,7 @@ After pairing, the DSH **Workspaces** list gains:
 - Type in the native composer: the prompt is forwarded to that computer's DSH and its reply is appended live. The local model is blocked, so it never answers locally.
 - New remote Sessions appear under the matching `[Remote]` project workspace within about 60 seconds; opening a Session pulls the latest records immediately.
 - **When a remote computer goes offline, its remote project groups are removed**; they are rebuilt when it comes back online.
+- **New Sessions inside a remote project group** are bound to a remote Session automatically; both the first prompt and later replies run on the remote Host, never locally. Older plugins or legacy local Sessions created inside a mirror project may still answer locally — update the plugin and start a new Session.
 - **Archive is bidirectional**: archiving a remote Session locally also archives it on the remote computer, and a remote archive is mirrored locally. Both computers must run the **latest plugin**; older builds lack the `session.archive` RPC.
 - The remote **model, reasoning effort and plugin/Agent preset** are controlled by the remote-settings gear in the conversation header; prompts are executed entirely by the remote Host. The local model picker does not change the remote model.
 - The **Link** sidebar entry remains as a management overview: devices, Sessions, pairing, Android hints and speech status.
