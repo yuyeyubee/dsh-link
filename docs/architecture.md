@@ -58,7 +58,7 @@
 为了让远程会话出现在 DSH 左侧「工作区」而不是插件页面，Host 半把远程会话**镜像**成本机会话：
 
 1. 每台在线电脑在 `~/.dsh/dsh-link/mirrors/<deviceId>/` 建一个真实目录，并注册为工作区
-   `[远程] <设备名>`；
+   `[远程] <远程项目名> · <设备名>`（按远程 Workspace 分组）；
 2. 为最近 10 个非子代理远程会话创建本机镜像会话（`session-dshlink-<hash>`），把远程
    `session.history` 映射成 DSH 原生事件（`turn/start`、`user/message`、`step/start`、
    `assistant/message`、`step/end`、`turn/end`）；
