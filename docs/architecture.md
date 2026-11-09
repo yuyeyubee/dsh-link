@@ -61,9 +61,13 @@
    `[远程] <远程项目名> · <设备名>`（按远程 Workspace 分组）；
 2. 为最近 10 个非子代理远程会话创建本机镜像会话（`session-dshlink-<hash>`），把远程
    `session.history` 映射成 DSH 原生事件（`turn/start`、`user/message`、`step/start`、
-   `assistant/message`、`step/end`、`turn/end`）；
+   `assistant/message`、`tool/call`、`tool/result`、`step/end`、`turn/end`）。工具调用保留原生
+   `turn`/`step`/`callId`/`arguments` 与结果消息，因此复用 DSH 原生工具卡片（默认折叠），
+   不再拼成展开的文本；
 3. 打开镜像会话时，Web UI 的会话头组件向 Host 发 `watch`，Host 订阅远程
-   `session.follow`，新记录实时追加到本机会话日志；
+   `session.follow`（`assistantStream: true`），提交记录继续追加到本机会话日志；远程正在生成
+   时，瞬时 `assistant-stream` 分片通过本机 Cordis 的 `agent/assistant-stream` 事件转发给
+   Web UI，于是镜像会话也能像原生会话一样逐字流式显示；
 4. 在原生输入框发送时，`agent/pre-step` 门禁拦截本机模型请求，把 prompt 转发到远程 Host，
    远程回复再通过 watch 追加回来；
 5. 镜像映射存于 `~/.dsh/dsh-link/mirrors.json`（0600），只含设备名、标题、远程 seq，
@@ -86,7 +90,8 @@ Host 半把 DSH 的 `sessionController` 服务封装成一组方法：
 | `speech.transcribe` | `speechToText.prepare/resolve/transcribe` |
 
 DSH 的原始事件被压成 7 种 `ChatRecord`（user / assistant / tool-call / tool-result /
-turn-start / turn-end / error），单条文本有上限，避免手机端收到几 MB 的日志。
+turn-start / turn-end / error），单条文本有上限，避免手机端收到几 MB 的日志。`assistant` 与
+工具记录额外带 `turn`/`step`，本机镜像据此还原原生 Turn/Step 结构和工具卡片。
 
 ### 3.4 远程会话写入
 
@@ -150,8 +155,9 @@ dsh-link/
 - 个人自用设计，没有多租户、角色、审计；token 即全部权限。
 - relay 不做离线消息队列：目标电脑没开 DSH 时，远程调用立即失败。
 - 远程会话是镜像：每台电脑只同步最近 10 个非子代理会话；远程删除不会自动删除本地镜像。
-- 镜像中的远程工具调用/结果以文本卡片呈现；附件上传、权限弹窗、模型切换等完整 DSH UI
-  仍要到目标电脑本地操作。
+- 镜像中的远程工具调用/结果复用 DSH 原生工具卡片（默认折叠）；升级前已同步的历史仍保留
+  旧版文本形式，只有新同步的内容使用原生事件。附件上传、权限弹窗等完整 DSH UI 仍要到
+  目标电脑本地操作。
 - 原生发送的门禁会让本地这一轮以结束/blocked 收尾，远程回复随后追加；请等待上一条回复。
 - 工具调用的参数/结果有截断；超长输出需要到目标电脑查看完整内容。
 - Android App 为自签名 APK，安装时需要允许「安装未知来源应用」。

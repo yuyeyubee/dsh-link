@@ -211,9 +211,9 @@ Host 把 DSH 会话事件映射为下表的记录；**只读**，不改变本地
 
 ```json
 { "kind": "user",    "seq": 12, "time": 1762531200000, "text": "帮我看看构建" }
-{ "kind": "assistant","seq": 15, "time": 1762531201000, "text": "好的，我先…", "reasoning": "…" }
-{ "kind": "tool-call","seq": 16, "time": 1762531202000, "callId": "call_1", "name": "bash", "args": "{\"command\":\"ls\"}" }
-{ "kind": "tool-result","seq": 17, "time": 1762531203000, "callId": "call_1", "name": "bash", "isError": false, "text": "a.txt\nb.txt" }
+{ "kind": "assistant","seq": 15, "time": 1762531201000, "turn": 1, "step": 1, "text": "好的，我先…", "reasoning": "…" }
+{ "kind": "tool-call","seq": 16, "time": 1762531202000, "turn": 1, "step": 1, "callId": "call_1", "name": "bash", "args": "{\"command\":\"ls\"}" }
+{ "kind": "tool-result","seq": 17, "time": 1762531203000, "turn": 1, "step": 1, "callId": "call_1", "name": "bash", "isError": false, "text": "a.txt\nb.txt" }
 { "kind": "turn-start","seq": 10, "time": 1762531199000, "turn": 1 }
 { "kind": "turn-end", "seq": 20, "time": 1762531210000, "turn": 1, "reason": "completed" }
 { "kind": "error",    "seq": 21, "time": 1762531211000, "message": "…" }
@@ -222,6 +222,7 @@ Host 把 DSH 会话事件映射为下表的记录；**只读**，不改变本地
 规则：
 
 - `user` 来自 `user/message` 的文本块；`assistant` 来自 `assistant/message` 的文本块，`reasoning` 为其 reasoning 块（可缺省）。
+- `assistant` / `tool-call` / `tool-result` 携带源事件的 `turn`、`step`，接收端可据此把工具调用还原成原生工具卡片（而不是折叠成一段文本）。
 - 富内容（图片/文件/工具块）不传输，只保留文本；`text` 截断到 16 KiB，`args` 截断到 4 KiB。
 - 未知事件忽略；`turn-end.reason` 用 `TurnEndReason` 的 `kind` 字符串。
 - 记录按 `seq` 升序返回。
@@ -232,15 +233,25 @@ Host 把 DSH 会话事件映射为下表的记录；**只读**，不改变本地
 
 ```json
 { "t": "ready", "sessionId": "…", "title": "…" }
-{ "t": "snapshot", "records": [ChatRecord], "cursor": 123, "state": SessionStateView }
+{ "t": "snapshot", "records": [ChatRecord], "cursor": 123, "state": SessionStateView,
+  "assistantStream": { "revision": 7, "activeAttempt": { "attemptId": "…", "turn": 1, "step": 2,
+    "startedAfterSeq": 41, "nextIndex": 3, "stream": [ { "time": 1762531204000, "chunk": { … } } ] } } }
 { "t": "record", "record": ChatRecord }
+{ "t": "assistant-stream", "frame": { "type": "start" | "chunk" | "end", … } }
 { "t": "state", "state": SessionStateView }
 { "t": "title", "title": "…" }
 { "t": "error", "code": "…", "message": "…" }
 ```
 
 - `snapshot` 必发一次，取最近 ≤ 60 条记录（`cursor` 为最后一条记录的 `seq`，无记录为 `-1`）。
+- `assistantStream` 是该会话当前未提交助手 attempt 的实时基线：`activeAttempt` 为空对象/缺省表示当前没有流式输出；`stream` 是已产生的 chunk 列表，`nextIndex` 是下一个 chunk 下标，`revision` 是进程内单调版本号。
 - 之后每个提交事件按 3.3 映射后发 `record`；`turn-start`/`turn-end` 后补发一次 `state`。
+- `assistant-stream` 帧是**瞬态呈现数据**，不进入会话日志，仅用于让订阅端边生成边显示。`frame` 复用 DSH 的 Assistant frame 形状：
+  - `start`：`{ type, attemptId, revision, turn, step }`；
+  - `chunk`：`{ type, attemptId, revision, index, time, chunk }`，`index` 从 0 密集递增，`chunk` 为模型增量块（如 `text-delta`、`reasoning-delta`、`tool-call-delta`）；
+  - `end`：`{ type, attemptId, revision, index, outcome }`，`outcome.kind` 为 `committed`（带 `eventType` 和提交事件 `seq`）或 `abandoned`；接收端应等收到与本次 attempt 匹配的提交记录后再保留流式内容，否则丢弃瞬态内容、以日志为准。
+- `revision` 在同一个连接/基线内必须严格 +1 递增；断线重连后以新 `snapshot.assistantStream.revision` 为准。
+- 兼容性：以上字段和 `assistant-stream` 帧是 v1 的**增量扩展**，旧客户端应忽略未知帧/字段；旧 Host 不发送 `assistantStream` 时新客户端退回一次性显示。
 - Host 每 10 秒兜底发一次 `state`（保活/状态纠正）；客户端可忽略重复。
 - 订阅者主动 `unsub`、连接断开或 host 卸载时结束。
 

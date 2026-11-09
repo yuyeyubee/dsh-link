@@ -74,8 +74,29 @@ function makeWav(seconds = 0.3) {
   return buffer
 }
 
+function makeFakeSession(id) {
+  const events = []
+  let seq = 0
+  return {
+    id,
+    events,
+    get seq() {
+      return seq
+    },
+    snapshotEvents() {
+      return events
+    },
+    append(type, data, options) {
+      const event = { type, seq: ++seq, time: seq, data, ...(options?.surfaceOp === undefined ? {} : { surfaceOp: options.surfaceOp }), ...(options?.sourceEventSeqs === undefined ? {} : { sourceEventSeqs: options.sourceEventSeqs }) }
+      events.push(event)
+      return event
+    },
+  }
+}
+
 function makeServices() {
   const credentials = makeCredentialStore()
+  const liveSessions = new Map()
   const sessionController = {
     async list() {
       return {
@@ -144,15 +165,19 @@ function makeServices() {
       return [{ id: 'ws-1', title: '项目', path: '/tmp/project' }]
     },
   }
-  return { credentials, sessionController, speechToText, workspaceRegistry }
+  return { credentials, sessionController, speechToText, workspaceRegistry, sessions: { get: (id) => liveSessions.get(id) }, liveSessions }
 }
 
 function makeContext(services) {
   const tools = new Map()
   const routes = new Map()
   const sections = []
+  const emitted = []
   const ctx = {
     credentials: services.credentials,
+    emit(name, payload) {
+      emitted.push({ name, payload })
+    },
     tools: {
       register(definition) {
         tools.set(definition.name, definition)
@@ -187,7 +212,7 @@ function makeContext(services) {
     },
     logger: { info() {}, warn() {} },
   }
-  return { ctx, tools, routes, sections }
+  return { ctx, tools, routes, sections, emitted }
 }
 
 test('apply registers tools, prompt section, and both API routes', () => {
@@ -203,8 +228,9 @@ test('apply registers tools, prompt section, and both API routes', () => {
 })
 
 function makeHost(services) {
-  const { ctx } = makeContext(services)
+  const { ctx, emitted } = makeContext(services)
   const host = new LinkHost(ctx)
+  host.emitted = emitted
   host.config = {
     version: 1,
     deviceId: 'dev_test',
@@ -336,4 +362,94 @@ test('pairing import file is consumed once', async () => {
 
 test('cleanup', () => {
   rmSync(process.env.DSH_HOME, { recursive: true, force: true })
+})
+
+test('mirror records append native tool events instead of folded text', () => {
+  const services = makeServices()
+  const host = makeHost(services)
+  const session = makeFakeSession('session-mirror')
+  services.liveSessions.set('session-mirror', session)
+  const entry = { localId: 'session-mirror', remoteSeq: -1, pendingUserTexts: [] }
+  const records = [
+    { kind: 'turn-start', seq: 1, time: 1, turn: 1 },
+    { kind: 'user', seq: 2, time: 2, text: '查一下' },
+    { kind: 'assistant', seq: 3, time: 3, turn: 1, step: 1, text: '我先看看' },
+    { kind: 'tool-call', seq: 4, time: 4, turn: 1, step: 1, callId: 'c1', name: 'bash', args: '{"command":"ls"}' },
+    { kind: 'tool-result', seq: 5, time: 5, turn: 1, step: 1, callId: 'c1', name: 'bash', isError: false, text: 'a.txt' },
+    { kind: 'turn-end', seq: 6, time: 6, turn: 1, reason: 'completed' },
+  ]
+  host.appendMirrorRecords(entry, records)
+  assert.deepEqual(session.events.map((event) => event.type), [
+    'turn/start', 'user/message', 'step/start', 'assistant/message',
+    'tool/call', 'tool/result', 'step/end', 'turn/end',
+  ])
+  const call = session.events.find((event) => event.type === 'tool/call')
+  assert.deepEqual(call.data, { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"ls"}' })
+  const result = session.events.find((event) => event.type === 'tool/result')
+  assert.equal(result.data.message.role, 'tool')
+  assert.equal(result.data.message.source.callId, 'c1')
+  assert.equal(result.data.message.toolCallId, 'c1')
+  assert.deepEqual(result.data.message.content, [{ type: 'text', text: 'a.txt' }])
+  assert.deepEqual(result.sourceEventSeqs, [call.seq])
+  const assistant = session.events.find((event) => event.type === 'assistant/message')
+  assert.equal(assistant.data.turn, 1)
+  assert.equal(assistant.data.step, 1)
+  assert.ok(!session.events.some((event) => event.type === 'assistant/message'
+    && event.data.message.content.some((block) => block.type === 'text' && block.text.includes('远程工具调用'))))
+})
+
+test('mirror replays and settles live assistant frames', () => {
+  const services = makeServices()
+  const host = makeHost(services)
+  const session = makeFakeSession('session-stream')
+  services.liveSessions.set('session-stream', session)
+  const entry = { localId: 'session-stream', remoteSeq: -1, pendingUserTexts: [] }
+  host.publishMirrorAssistantBaseline(entry, session, {
+    revision: 0,
+    activeAttempt: {
+      attemptId: 'attempt-1',
+      turn: 2,
+      step: 3,
+      nextIndex: 2,
+      stream: [
+        { time: 1, chunk: { type: 'text-delta', text: '你' } },
+        { time: 2, chunk: { type: 'text-delta', text: '好' } },
+      ],
+    },
+  })
+  const frames = host.emitted.map((item) => item.payload.frame)
+  assert.deepEqual(frames.map((frame) => frame.type), ['start', 'chunk', 'chunk'])
+  assert.deepEqual(frames.map((frame) => frame.revision), [1, 2, 3])
+  assert.deepEqual(frames.map((frame) => frame.index), [undefined, 0, 1])
+  assert.deepEqual(frames[0].turn, 1)
+  assert.deepEqual(frames[0].step, 1)
+  host.appendMirrorRecords(entry, [{ kind: 'assistant', seq: 9, time: 9, turn: 2, step: 3, text: '你好' }])
+  const committedSeq = entry.lastCommittedAssistant.seq
+  assert.ok(Number.isFinite(committedSeq))
+  host.publishMirrorAssistantEnd(entry, session, {
+    attemptId: 'attempt-1',
+    index: 2,
+    outcome: { kind: 'committed', eventType: 'assistant/message', seq: 999 },
+  })
+  const end = host.emitted.at(-1).payload.frame
+  assert.equal(end.type, 'end')
+  assert.deepEqual(end.outcome, { kind: 'committed', eventType: 'assistant/message', seq: committedSeq })
+})
+
+test('follow opts into the assistant stream and forwards live frames', async () => {
+  const services = makeServices()
+  let request
+  services.sessionController.follow = async function* (value) {
+    request = value
+    yield { type: 'snapshot', cursor: 0, records: [], projections: {}, assistantStream: { revision: 3 } }
+    yield { type: 'assistant-stream', frame: { type: 'chunk', attemptId: 'a', revision: 4, index: 0, time: 1, chunk: { type: 'text-delta', text: '流' } } }
+  }
+  const host = makeHost(services)
+  const frames = []
+  for await (const frame of host.followSession('session-a', new AbortController().signal)) frames.push(frame)
+  assert.equal(request.assistantStream, true)
+  assert.deepEqual(frames.find((frame) => frame.t === 'snapshot').assistantStream, { revision: 3 })
+  const streamed = frames.find((frame) => frame.t === 'assistant-stream')
+  assert.equal(streamed.frame.index, 0)
+  assert.equal(streamed.frame.chunk.text, '流')
 })

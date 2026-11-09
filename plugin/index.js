@@ -262,7 +262,14 @@ export function mapWireEvent(wire) {
       const text = textOfMessage(message)
       const reasoning = reasoningOfMessage(message)
       if (text.length === 0 && reasoning.length === 0) return undefined
-      const record = { kind: 'assistant', seq, time, text: truncate(text, MAX_TEXT) }
+      const record = {
+        kind: 'assistant',
+        seq,
+        time,
+        turn: Number.isFinite(data.turn) ? data.turn : 0,
+        step: Number.isFinite(data.step) ? data.step : 0,
+        text: truncate(text, MAX_TEXT),
+      }
       if (reasoning.length > 0) record.reasoning = truncate(reasoning, MAX_REASONING)
       return record
     }
@@ -270,7 +277,16 @@ export function mapWireEvent(wire) {
       const callId = typeof data.callId === 'string' ? data.callId : ''
       const toolName = typeof data.name === 'string' ? data.name : 'tool'
       const args = typeof data.arguments === 'string' ? data.arguments : ''
-      return { kind: 'tool-call', seq, time, callId, name: toolName, args: truncate(args, MAX_ARGS) }
+      return {
+        kind: 'tool-call',
+        seq,
+        time,
+        turn: Number.isFinite(data.turn) ? data.turn : 0,
+        step: Number.isFinite(data.step) ? data.step : 0,
+        callId,
+        name: toolName,
+        args: truncate(args, MAX_ARGS),
+      }
     }
     case 'tool/result': {
       const message = data.message
@@ -287,6 +303,8 @@ export function mapWireEvent(wire) {
         kind: 'tool-result',
         seq,
         time,
+        turn: Number.isFinite(data.turn) ? data.turn : 0,
+        step: Number.isFinite(data.step) ? data.step : 0,
         callId,
         name: typeof message?.toolName === 'string' ? message.toolName : '',
         isError,
@@ -704,6 +722,7 @@ class LinkHost {
     this.speechWarmed = false
     this.mirrors = { version: 1, devices: {} }
     this.mirrorWatches = new Map()
+    this.mirrorStreamStats = new Map()
     this.mirrorTimer = undefined
     this.peerStateTimer = undefined
     this.archiveTimer = undefined
@@ -1238,6 +1257,7 @@ class LinkHost {
     const request = {
       address: { kind: 'session', sessionId },
       activate: false,
+      assistantStream: true,
       maxMessages: FOLLOW_MAX_MESSAGES,
       turnWindow: { minMessages: 12, minTurns: 2 },
     }
@@ -1260,9 +1280,19 @@ class LinkHost {
           if (typeof value === 'string' && value.trim().length > 0) title = value.trim()
         }
         if (title.length === 0) title = foldedTitle
-        yield { t: 'snapshot', records, cursor: Number.isFinite(frame.cursor) ? frame.cursor : -1, state }
+        yield {
+          t: 'snapshot',
+          records,
+          cursor: Number.isFinite(frame.cursor) ? frame.cursor : -1,
+          state,
+          ...(frame.assistantStream !== null && typeof frame.assistantStream === 'object' ? { assistantStream: frame.assistantStream } : {}),
+        }
         if (title.length > 0) yield { t: 'title', title }
         snapshotSent = true
+        continue
+      }
+      if (frame.type === 'assistant-stream') {
+        yield { t: 'assistant-stream', frame: frame.frame }
         continue
       }
       if (frame.type !== 'event') continue
@@ -1732,27 +1762,74 @@ class LinkHost {
     }
   }
 
+  /** Highest local Turn number already committed to one mirror Session. */
+  mirrorLastTurn(session) {
+    let last = 0
+    for (const event of session.snapshotEvents()) {
+      if (event.type === 'turn/start' && Number.isFinite(event.data?.turn)) last = Math.max(last, event.data.turn)
+    }
+    return last
+  }
+
+  /** Lazily create the remote→local Turn/Step cursor of one mirror entry. */
+  mirrorCursor(entry) {
+    if (entry.mirrorCursor === null || typeof entry.mirrorCursor !== 'object') entry.mirrorCursor = {}
+    const cursor = entry.mirrorCursor
+    if (!Number.isFinite(cursor.localTurn)) cursor.localTurn = 0
+    if (!Number.isFinite(cursor.localStep)) cursor.localStep = 0
+    if (typeof cursor.turnOpen !== 'boolean') cursor.turnOpen = false
+    if (typeof cursor.stepOpen !== 'boolean') cursor.stepOpen = false
+    return cursor
+  }
+
+  /** Close the open local Step of one mirror cursor. */
+  closeMirrorStep(session, cursor) {
+    if (cursor.stepOpen !== true) return
+    session.append('step/end', { turn: cursor.localTurn, step: cursor.localStep })
+    cursor.stepOpen = false
+  }
+
+  /** Close the open local Turn of one mirror cursor. */
+  closeMirrorTurn(session, cursor, reason = 'completed') {
+    this.closeMirrorStep(session, cursor)
+    if (cursor.turnOpen !== true) return
+    session.append('turn/end', { turn: cursor.localTurn, reason: { kind: reason } })
+    cursor.turnOpen = false
+  }
+
+  /** Open the next local Turn that represents one remote Turn. */
+  openMirrorTurn(session, cursor, remoteTurn) {
+    this.closeMirrorTurn(session, cursor)
+    cursor.localTurn = this.mirrorLastTurn(session) + 1
+    cursor.remoteTurn = Number.isFinite(remoteTurn) ? remoteTurn : cursor.remoteTurn
+    cursor.localStep = 0
+    cursor.remoteStep = undefined
+    session.append('turn/start', { turn: cursor.localTurn })
+    cursor.turnOpen = true
+  }
+
+  /** Translate remote turn/step coordinates to open local boundaries. */
+  ensureMirrorStep(session, cursor, remoteTurn, remoteStep) {
+    const turn = Number.isFinite(remoteTurn) ? remoteTurn : cursor.remoteTurn
+    if (cursor.turnOpen !== true || cursor.remoteTurn !== turn) this.openMirrorTurn(session, cursor, turn)
+    if (!Number.isFinite(remoteStep)) return { turn: cursor.localTurn, step: cursor.localStep }
+    if (cursor.stepOpen !== true || cursor.remoteStep !== remoteStep) {
+      this.closeMirrorStep(session, cursor)
+      cursor.localStep += 1
+      cursor.remoteStep = remoteStep
+      session.append('step/start', { turn: cursor.localTurn, step: cursor.localStep })
+      cursor.stepOpen = true
+    }
+    return { turn: cursor.localTurn, step: cursor.localStep }
+  }
+
   /** Append compact protocol records to one local mirror Session. */
   appendMirrorRecords(entry, records) {
     const session = this.service('sessions')?.get(entry.localId)
     if (session === undefined) return []
-    const events = session.snapshotEvents()
-    let turnOpen = false
-    let stepOpen = false
-    let turn = 0
-    let step = 0
-    for (const event of events) {
-      if (event.type === 'turn/start') {
-        turnOpen = true
-        turn = Number.isFinite(event.data?.turn) ? event.data.turn : turn + 1
-        step = 0
-      } else if (event.type === 'turn/end') {
-        turnOpen = false
-      } else if (event.type === 'assistant/message' && Number.isFinite(event.data?.step)) {
-        step = Math.max(step, event.data.step)
-      }
-    }
+    const cursor = this.mirrorCursor(entry)
     const pending = Array.isArray(entry.pendingUserTexts) ? entry.pendingUserTexts : []
+    if (entry.toolCallSeqs === null || typeof entry.toolCallSeqs !== 'object') entry.toolCallSeqs = {}
     const appended = []
     for (const record of records) {
       try {
@@ -1764,12 +1841,7 @@ class LinkHost {
             appended.push(record)
             continue
           }
-          if (!turnOpen) {
-            turn += 1
-            step = 0
-            session.append('turn/start', { turn })
-            turnOpen = true
-          }
+          if (cursor.turnOpen !== true) this.openMirrorTurn(session, cursor, cursor.remoteTurn)
           session.append('user/message', {
             id: randomUUID(),
             role: 'user',
@@ -1779,27 +1851,27 @@ class LinkHost {
           appended.push(record)
           continue
         }
+        if (record.kind === 'turn-start') {
+          const remoteTurn = Number.isFinite(record.turn) ? record.turn : cursor.remoteTurn
+          if (cursor.turnOpen !== true || cursor.remoteTurn !== remoteTurn) this.openMirrorTurn(session, cursor, remoteTurn)
+          appended.push(record)
+          continue
+        }
+        if (record.kind === 'turn-end') {
+          const reason = record.reason === 'completed' ? 'completed' : record.reason === 'aborted' ? 'aborted' : record.reason === 'error' ? 'error' : 'completed'
+          this.closeMirrorTurn(session, cursor, reason)
+          appended.push(record)
+          continue
+        }
+        const coordinates = this.ensureMirrorStep(session, cursor, record.turn, record.step)
         if (record.kind === 'assistant') {
-          if (!turnOpen) {
-            turn += 1
-            step = 0
-            session.append('turn/start', { turn })
-            turnOpen = true
-          }
-          if (stepOpen) {
-            session.append('step/end', { turn, step })
-            stepOpen = false
-          }
-          step += 1
-          session.append('step/start', { turn, step })
-          stepOpen = true
           const content = []
           if (typeof record.reasoning === 'string' && record.reasoning.length > 0) content.push({ type: 'reasoning', text: record.reasoning })
-          if (record.text.length > 0) content.push({ type: 'text', text: record.text })
-          if (content.length === 0) content.push({ type: 'text', text: '（远程助手只返回了工具调用）' })
-          session.append('assistant/message', {
-            turn,
-            step,
+          if (typeof record.text === 'string' && record.text.length > 0) content.push({ type: 'text', text: record.text })
+          if (content.length === 0) content.push({ type: 'text', text: '（远程助手没有返回可显示内容）' })
+          const committed = session.append('assistant/message', {
+            turn: coordinates.turn,
+            step: coordinates.step,
             message: {
               id: randomUUID(),
               role: 'assistant',
@@ -1808,80 +1880,56 @@ class LinkHost {
             },
             stream: [],
           }, { surfaceOp: 'append' })
-          session.append('step/end', { turn, step })
-          stepOpen = false
-          appended.push(record)
-          continue
-        }
-        if (record.kind === 'tool-call' || record.kind === 'tool-result' || record.kind === 'error') {
-          if (!turnOpen) {
-            turn += 1
-            step = 0
-            session.append('turn/start', { turn })
-            turnOpen = true
+          entry.lastCommittedAssistant = {
+            seq: Number.isFinite(committed?.seq) ? committed.seq : undefined,
+            turn: coordinates.turn,
+            step: coordinates.step,
           }
-          if (stepOpen) {
-            session.append('step/end', { turn, step })
-            stepOpen = false
+        } else if (record.kind === 'tool-call') {
+          const call = session.append('tool/call', {
+            turn: coordinates.turn,
+            step: coordinates.step,
+            callId: record.callId,
+            name: record.name || 'tool',
+            arguments: record.args || '{}',
+          })
+          if (record.callId.length > 0 && Number.isFinite(call?.seq)) {
+            entry.toolCallSeqs[record.callId] = call.seq
+            const callIds = Object.keys(entry.toolCallSeqs)
+            if (callIds.length > 400) for (const old of callIds.slice(0, callIds.length - 400)) delete entry.toolCallSeqs[old]
           }
-          step += 1
-          session.append('step/start', { turn, step })
-          stepOpen = true
-          let text
-          if (record.kind === 'tool-call') {
-            text = `🔧 远程工具调用 \`${record.name || 'tool'}\`\n\`\`\`json\n${record.args || ''}\n\`\`\``
-          } else if (record.kind === 'tool-result') {
-            text = `${record.isError === true ? '❌ 远程工具失败' : '✅ 远程工具结果'}${record.name ? ` · ${record.name}` : ''}\n\`\`\`\n${record.text || ''}\n\`\`\``
-          } else {
-            text = `⚠️ 远程错误：${record.message || ''}`
+        } else if (record.kind === 'tool-result') {
+          const callSeq = record.callId.length > 0 ? entry.toolCallSeqs[record.callId] : undefined
+          const message = {
+            id: randomUUID(),
+            role: 'tool',
+            source: { kind: 'tool', callId: record.callId },
+            toolCallId: record.callId,
+            content: [{ type: 'text', text: typeof record.text === 'string' ? record.text : '' }],
           }
+          if (record.isError === true) message.isError = true
+          session.append('tool/result', {
+            turn: coordinates.turn,
+            step: coordinates.step,
+            message,
+          }, {
+            surfaceOp: 'append',
+            ...(Number.isFinite(callSeq) ? { sourceEventSeqs: [callSeq] } : {}),
+          })
+        } else {
           session.append('assistant/message', {
-            turn,
-            step,
+            turn: coordinates.turn,
+            step: coordinates.step,
             message: {
               id: randomUUID(),
               role: 'assistant',
-              content: [{ type: 'text', text }],
+              content: [{ type: 'text', text: `⚠️ 远程错误：${record.message || ''}` }],
               source: { kind: 'model', provider: 'dsh-link', model: 'remote' },
             },
             stream: [],
           }, { surfaceOp: 'append' })
-          session.append('step/end', { turn, step })
-          stepOpen = false
-          appended.push(record)
-          continue
         }
-        if (record.kind === 'turn-start') {
-          if (stepOpen) {
-            session.append('step/end', { turn, step })
-            stepOpen = false
-          }
-          if (turnOpen) {
-            session.append('turn/end', { turn, reason: { kind: 'completed' } })
-          }
-          turn = Number.isFinite(record.turn) ? record.turn : turn + 1
-          step = 0
-          session.append('turn/start', { turn })
-          turnOpen = true
-          appended.push(record)
-          continue
-        }
-        if (record.kind === 'turn-end') {
-          if (stepOpen) {
-            session.append('step/end', { turn, step })
-            stepOpen = false
-          }
-          if (!turnOpen) {
-            turn += 1
-            session.append('turn/start', { turn })
-            turnOpen = true
-          }
-          const reason = record.reason === 'completed' ? 'completed' : record.reason === 'aborted' ? 'aborted' : record.reason === 'error' ? 'error' : 'completed'
-          session.append('turn/end', { turn, reason: { kind: reason } })
-          turnOpen = false
-          appended.push(record)
-          continue
-        }
+        appended.push(record)
       } catch (error) {
         this.log('warn', `dsh-link: mirror append ${entry.localId}: ${errorMessage(error)}`)
         break
@@ -1889,6 +1937,131 @@ class LinkHost {
     }
     entry.pendingUserTexts = pending
     return appended
+  }
+
+  /** Lazily create the live assistant-stream state of one mirror entry. */
+  mirrorStream(entry) {
+    if (entry.mirrorStream === null || typeof entry.mirrorStream !== 'object') {
+      entry.mirrorStream = { revision: 0, attemptId: undefined, started: false, turn: 0, step: 0 }
+    }
+    const stream = entry.mirrorStream
+    if (!Number.isFinite(stream.revision)) stream.revision = 0
+    if (typeof stream.started !== 'boolean') stream.started = false
+    if (!Number.isFinite(stream.turn)) stream.turn = 0
+    if (!Number.isFinite(stream.step)) stream.step = 0
+    return stream
+  }
+
+  /**
+   * Publish one transient assistant frame to this Host's UI. The frame is
+   * process-local presentation data: it is never appended to the Session log,
+   * exactly like a local Agent's own live chunks.
+   */
+  emitMirrorAssistantFrame(entry, session, frame) {
+    this.noteMirrorStreamFrame(entry, frame)
+    if (typeof this.ctx?.emit !== 'function') return
+    try {
+      this.ctx.emit('agent/assistant-stream', { agent: { id: session.id, session }, frame })
+    } catch (error) {
+      this.log('warn', `dsh-link: mirror stream ${entry.localId}: ${errorMessage(error)}`)
+    }
+  }
+
+  /** Record one received stream frame for diagnostics without touching the log. */
+  noteMirrorStreamFrame(entry, frame) {
+    const stats = this.mirrorStreamStats.get(entry.localId) ?? { frames: 0, chunks: 0, lastAt: 0, lastType: '', attemptId: '' }
+    stats.frames += 1
+    if (frame.type === 'chunk') stats.chunks += 1
+    stats.lastAt = Date.now()
+    stats.lastType = String(frame.type)
+    stats.attemptId = typeof frame.attemptId === 'string' ? frame.attemptId : ''
+    this.mirrorStreamStats.set(entry.localId, stats)
+  }
+
+  /** Begin one live assistant attempt on the local mirror Session. */
+  publishMirrorAssistantStart(entry, session, attempt) {
+    const stream = this.mirrorStream(entry)
+    const cursor = this.mirrorCursor(entry)
+    const coordinates = this.ensureMirrorStep(session, cursor, attempt.turn, attempt.step)
+    stream.attemptId = typeof attempt.attemptId === 'string' ? attempt.attemptId : undefined
+    stream.started = true
+    stream.turn = coordinates.turn
+    stream.step = coordinates.step
+    stream.revision += 1
+    this.emitMirrorAssistantFrame(entry, session, {
+      type: 'start',
+      attemptId: stream.attemptId,
+      revision: stream.revision,
+      turn: coordinates.turn,
+      step: coordinates.step,
+    })
+    this.saveMirrorStore()
+  }
+
+  /** Publish one transient chunk of the active mirror attempt. */
+  publishMirrorAssistantChunk(entry, session, frame) {
+    const stream = this.mirrorStream(entry)
+    if (stream.started !== true || stream.attemptId !== frame.attemptId) return
+    stream.revision += 1
+    this.emitMirrorAssistantFrame(entry, session, {
+      type: 'chunk',
+      attemptId: frame.attemptId,
+      revision: stream.revision,
+      index: frame.index,
+      time: frame.time,
+      chunk: frame.chunk,
+    })
+  }
+
+  /** Settle the active mirror attempt against its durable local message. */
+  publishMirrorAssistantEnd(entry, session, frame) {
+    const stream = this.mirrorStream(entry)
+    if (stream.attemptId !== frame.attemptId) return
+    let outcome = frame.outcome
+    if (outcome !== null && typeof outcome === 'object' && outcome.kind === 'committed') {
+      const committed = entry.lastCommittedAssistant
+      const matches = committed !== null && typeof committed === 'object'
+        && Number.isFinite(committed.seq)
+        && committed.turn === stream.turn
+        && committed.step === stream.step
+      outcome = outcome.eventType === 'assistant/message' && matches
+        ? { kind: 'committed', eventType: 'assistant/message', seq: committed.seq }
+        : { kind: 'abandoned' }
+    }
+    stream.revision += 1
+    this.emitMirrorAssistantFrame(entry, session, {
+      type: 'end',
+      attemptId: frame.attemptId,
+      revision: stream.revision,
+      index: frame.index,
+      outcome,
+    })
+    stream.started = false
+    stream.attemptId = undefined
+    this.saveMirrorStore()
+  }
+
+  /** Replay the opening assistant-stream baseline of one remote follow. */
+  publishMirrorAssistantBaseline(entry, session, baseline) {
+    if (baseline === null || typeof baseline !== 'object') return
+    const stream = this.mirrorStream(entry)
+    stream.started = false
+    stream.attemptId = undefined
+    const attempt = baseline.activeAttempt
+    if (attempt === null || typeof attempt !== 'object') return
+    this.publishMirrorAssistantStart(entry, session, attempt)
+    const members = Array.isArray(attempt.stream) ? attempt.stream : []
+    const limit = Number.isFinite(attempt.nextIndex) ? Math.min(attempt.nextIndex, members.length) : members.length
+    for (let index = 0; index < limit; index += 1) {
+      const member = members[index]
+      if (member === null || typeof member !== 'object') continue
+      this.publishMirrorAssistantChunk(entry, session, {
+        attemptId: attempt.attemptId,
+        index,
+        time: member.time,
+        chunk: member.chunk,
+      })
+    }
   }
 
   /** Subscribe to one remote Session while its native mirror is open. */
@@ -1911,6 +2084,8 @@ class LinkHost {
               entry.remoteSeq = appended[appended.length - 1].seq
               this.saveMirrorStore()
             }
+            const session = this.service('sessions')?.get(localSessionId)
+            if (session !== undefined) this.publishMirrorAssistantBaseline(entry, session, data.assistantStream)
           } else if (data.t === 'record' && data.record !== null && typeof data.record === 'object') {
             if (Number.isFinite(data.record.seq) && data.record.seq > (entry.remoteSeq ?? -1)) {
               const appended = this.appendMirrorRecords(entry, [data.record])
@@ -1919,6 +2094,12 @@ class LinkHost {
                 this.saveMirrorStore()
               }
             }
+          } else if (data.t === 'assistant-stream' && data.frame !== null && typeof data.frame === 'object') {
+            const session = this.service('sessions')?.get(localSessionId)
+            if (session === undefined) return
+            if (data.frame.type === 'start') this.publishMirrorAssistantStart(entry, session, data.frame)
+            else if (data.frame.type === 'chunk') this.publishMirrorAssistantChunk(entry, session, data.frame)
+            else if (data.frame.type === 'end') this.publishMirrorAssistantEnd(entry, session, data.frame)
           } else if (data.t === 'title' && typeof data.title === 'string' && data.title.length > 0) {
             const session = this.service('sessions')?.get(localSessionId)
             if (session !== undefined) void this.renameMirror(session, entry, data.title)
@@ -2425,6 +2606,59 @@ class LinkHost {
       return { localSessionId: after.entry.localId, workspaceId: after.entry.workspaceId ?? '', title: after.entry.title ?? '' }
     }
     throw new LinkError('not-found', `远程会话 ${remoteId} 不在最近镜像范围内`)
+  }
+
+  /** Rebuild one mirror Session so its history uses native tool events. */
+  async rebuildMirrorSession(deviceId, device, remoteSessionId, entry) {
+    if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string') return false
+    const registry = this.service('workspaceRegistry')
+    const sessions = this.requireSessions()
+    const mapping = device.workspaces?.[entry.workspaceId]
+    const workspace = registry !== undefined && typeof mapping?.localWorkspaceId === 'string'
+      ? registry.get(mapping.localWorkspaceId)
+      : undefined
+    if (workspace === undefined) return false
+    const base = this.localMirrorId(deviceId, remoteSessionId)
+    const nextLocalId = `${base}-${Date.now().toString(36)}`
+    const oldLocalId = entry.localId
+    try {
+      await sessions.create({ workspaceId: workspace.id, sessionId: nextLocalId })
+    } catch (error) {
+      this.log('warn', `dsh-link: mirror rebuild ${remoteSessionId}: ${errorMessage(error)}`)
+      return false
+    }
+    if (registry !== undefined) {
+      await registry.archiveSession(oldLocalId, { stopActivity: true }).catch(() => {})
+      await registry.archiveSession(nextLocalId, { stopActivity: true }).catch(() => {})
+      if (entry.archiveLocal !== true) await registry.unarchiveSession(nextLocalId).catch(() => {})
+    }
+    await workspace.attachSession(nextLocalId).catch(() => {})
+    entry.localId = nextLocalId
+    entry.remoteSeq = -1
+    entry.pendingUserTexts = []
+    entry.mirrorCursor = undefined
+    entry.toolCallSeqs = undefined
+    entry.lastCommittedAssistant = undefined
+    entry.mirrorStream = undefined
+    await this.syncMirrorHistory({ id: deviceId, name: device.name ?? deviceId }, entry, remoteSessionId)
+    this.saveMirrorStore()
+    return true
+  }
+
+  /** Rebuild every mirrored Session of one device (or all devices). */
+  async rebuildMirrorSessions(deviceRef) {
+    const peerId = typeof deviceRef === 'string' && deviceRef.trim().length > 0
+      ? this.resolvePeer(deviceRef).id
+      : undefined
+    let rebuilt = 0
+    for (const [deviceId, device] of Object.entries(this.mirrors.devices ?? {})) {
+      if (peerId !== undefined && deviceId !== peerId) continue
+      for (const [remoteSessionId, entry] of Object.entries(device.sessions ?? {})) {
+        if (await this.rebuildMirrorSession(deviceId, device, remoteSessionId, entry)) rebuilt += 1
+      }
+    }
+    this.saveMirrorStore()
+    return { rebuilt, device: peerId ?? 'all' }
   }
 
   /** Read the Workspace baseline (workspaces, archive set, pins). */
@@ -3001,6 +3235,27 @@ class LinkHost {
         const list = await this.sessionList()
         return { items: list.filter((item) => typeof item.cwd === 'string' && item.cwd.includes(`${join(dataDir(), 'mirrors')}`)) }
       }
+      case 'rebuild-mirrors':
+        return await this.rebuildMirrorSessions(extra?.device)
+      case 'watch': {
+        const sessionId = this.requireSessionId(extra?.sessionId)
+        return this.watchMirror(sessionId)
+      }
+      case 'unwatch': {
+        const sessionId = this.requireSessionId(extra?.sessionId)
+        this.unwatchMirror(sessionId)
+        return { watching: false }
+      }
+      case 'streams': {
+        return {
+          items: [...this.mirrorStreamStats.entries()].map(([localId, stats]) => ({ localId, ...stats })),
+          mirrors: this.mirrorList().map((item) => ({
+            localSessionId: item.localSessionId,
+            remoteSessionId: item.remoteSessionId,
+            stream: item.localSessionId === undefined ? null : this.mirrorStreamStats.get(item.localSessionId) ?? null,
+          })),
+        }
+      }
       case 'speech-test': {
         const sampleRate = 16000
         const seconds = 0.6
@@ -3028,7 +3283,7 @@ class LinkHost {
         return await this.sessionHistory(sessionId, 8)
       }
       default:
-        return { ok: true, hint: 'what: config | sessions | titles | workspaces | speech | events(sessionId)' }
+        return { ok: true, hint: 'what: config | sessions | titles | workspaces | speech | streams | events(sessionId)' }
     }
   }
 }
@@ -3251,7 +3506,7 @@ function toolDefinitions(host) {
       parameters: {
         type: 'object',
         properties: {
-          what: { type: 'string', enum: ['config', 'sessions', 'titles', 'workspaces', 'speech', 'events', 'raw', 'list', 'state', 'follow', 'speech-test', 'mirror-probe', 'mirror-list', 'mirror-cleanup', 'types', 'tree', 'remote-tree', 'ensure-mirror', 'workspace-snapshot', 'models', 'presets', 'session-info', 'archive-state', 'archive-probe'] },
+          what: { type: 'string', enum: ['config', 'sessions', 'titles', 'workspaces', 'speech', 'events', 'raw', 'list', 'state', 'follow', 'speech-test', 'mirror-probe', 'mirror-list', 'mirror-cleanup', 'types', 'tree', 'remote-tree', 'ensure-mirror', 'workspace-snapshot', 'models', 'presets', 'session-info', 'archive-state', 'archive-probe', 'streams', 'rebuild-mirrors', 'watch', 'unwatch'] },
           session_id: { type: 'string', description: 'Required when what is events/raw/state/follow.' },
           before_seq: { type: 'number', description: 'Optional raw-event page cursor.' },
           device: { type: 'string', description: 'Target peer for mirror-probe.' },
