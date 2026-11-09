@@ -64,6 +64,10 @@ const MAX_MIRROR_SESSIONS = 10
 const MIRROR_STORE_VERSION = 2
 /** How often peers are re-listed while connected, in milliseconds. */
 const MIRROR_SYNC_INTERVAL_MS = 60_000
+/** How long one archive reconcile waits for a peer's archive baseline. */
+const ARCHIVE_SNAPSHOT_TIMEOUT_MS = 20_000
+/** Backoff before retrying one mirror whose archive direction did not apply. */
+const ARCHIVE_RETRY_MS = 15_000
 /** Reconnect backoff bounds, in milliseconds. */
 const RECONNECT_MIN_MS = 1_000
 const RECONNECT_MAX_MS = 30_000
@@ -103,6 +107,16 @@ function errorMessage(error) {
   if (error instanceof Error) return error.message
   if (error !== null && typeof error === 'object' && typeof error.message === 'string') return error.message
   return String(error)
+}
+
+/**
+ * Whether an archive failure only says the named Session no longer exists.
+ *
+ * Such a failure is permanent for that id: retrying would never change the
+ * archive set, so the reconcile records the direction as applied and moves on.
+ */
+function isUnknownSessionError(error) {
+  return /no such session|session .*not found|not-found/iu.test(errorMessage(error))
 }
 
 /** Clamp a string and append an ellipsis when it was cut. */
@@ -1646,6 +1660,14 @@ class LinkHost {
   async pruneOfflinePeerWorkspaces() {
     const online = new Set(this.peers.map((peer) => peer.id))
     const registry = this.service('workspaceRegistry')
+    // Only a real controller owns the archive baseline; the static fallback of
+    // `workspaceSnapshot` reports an empty set and must not be read as intent.
+    const local = this.service('workspaceController') === undefined
+      ? null
+      : await this.workspaceSnapshot().catch(() => null)
+    const localArchived = local === null
+      ? undefined
+      : new Set(Array.isArray(local.archivedSessionIds) ? local.archivedSessionIds.map(String) : [])
     let changed = false
     for (const [deviceId, device] of Object.entries(this.mirrors.devices ?? {})) {
       if (online.has(deviceId)) continue
@@ -1654,6 +1676,14 @@ class LinkHost {
       // unarchived copy of every remote Session, so archived rows came back.
       for (const entry of Object.values(device.sessions ?? {})) {
         if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string') continue
+        // Remember what the user had before the row is hidden: the archive
+        // state below is written by this plugin, not by the user, so the next
+        // online reconcile must restore the remembered direction instead of
+        // reading it as a fresh user action.
+        if (typeof entry.archiveDesired !== 'boolean') {
+          if (typeof entry.archiveLocal === 'boolean') entry.archiveDesired = entry.archiveLocal
+          else if (localArchived !== undefined) entry.archiveDesired = localArchived.has(entry.localId)
+        }
         entry.offlineHidden = true
         if (registry !== undefined) {
           try {
@@ -1662,6 +1692,7 @@ class LinkHost {
             // already archived or gone
           }
         }
+        entry.archiveLocal = true
       }
       const mappings = Object.values(device.workspaces ?? {})
       for (const mapping of mappings) {
@@ -1690,6 +1721,12 @@ class LinkHost {
     this.archiveTimer.unref?.()
   }
 
+  /** Read one peer's durable archive baseline. */
+  async readRemoteArchiveSet(peer) {
+    const snapshot = await this.remoteCall(peer.id, 'workspace.snapshot', {}, ARCHIVE_SNAPSHOT_TIMEOUT_MS)
+    return new Set(Array.isArray(snapshot?.archivedSessionIds) ? snapshot.archivedSessionIds.map(String) : [])
+  }
+
   /** Push or pull archive changes for every online mirror. */
   async syncPeerArchives() {
     if (this.archiveSyncing || this.relay === undefined || this.relay.state !== 'connected') return
@@ -1697,19 +1734,32 @@ class LinkHost {
     this.archiveSyncing = true
     try {
       const local = await this.workspaceSnapshot().catch(() => null)
-      const localSet = new Set(Array.isArray(local?.archivedSessionIds) ? local.archivedSessionIds : [])
+      const localSet = new Set(Array.isArray(local?.archivedSessionIds) ? local.archivedSessionIds.map(String) : [])
+      // Two remote Sessions can share one local mirror row (a duplicate bind).
+      // Only the first owner may drive that row's archive state, otherwise the
+      // two entries would archive and unarchive each other forever.
+      const owner = new Map()
       for (const peer of [...this.peers]) {
         const device = this.mirrors.devices?.[peer.id]
         if (device === undefined) continue
         let remoteSet
         try {
-          const snapshot = await this.remoteCall(peer.id, 'workspace.snapshot', {}, 10_000)
-          remoteSet = new Set(Array.isArray(snapshot?.archivedSessionIds) ? snapshot.archivedSessionIds : [])
+          remoteSet = await this.readRemoteArchiveSet(peer)
         } catch (error) {
+          // A slow or unreachable peer must not swallow a pending user change;
+          // `syncOneMirrorArchive` still pushes the recorded local direction.
           this.lastArchiveError = `snapshot ${peer.id}: ${errorMessage(error)}`
-          continue
         }
         for (const [remoteId, entry] of Object.entries(device.sessions ?? {})) {
+          if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string') continue
+          // The peer Session vanished, so its mirror mapping can never settle.
+          if (entry.archiveUnavailable === true) continue
+          const previousOwner = owner.get(entry.localId)
+          if (previousOwner !== undefined && previousOwner !== remoteId) {
+            this.log('warn', `dsh-link: mirror ${remoteId} shares local ${entry.localId} with ${previousOwner}, archive sync skipped`)
+            continue
+          }
+          owner.set(entry.localId, remoteId)
           await this.syncOneMirrorArchive(peer, remoteId, entry, localSet, remoteSet)
         }
       }
@@ -1718,43 +1768,100 @@ class LinkHost {
     }
   }
 
-  /** Apply one mirror's persisted archive direction. A real user change wins. */
+  /**
+   * Reconcile one mirror with the online peer.
+   *
+   * `archiveDesired` stores the archive direction the user actually wants;
+   * `archiveLocal` / `archiveRemote` store the last state confirmed on each
+   * side. Writing the plugin's own offline hiding into `archiveLocal` keeps it
+   * from ever being mistaken for a user action, and a direction is only
+   * recorded once it has been applied, so a failed push is retried instead of
+   * being resurrected as "the other side changed".
+   */
   async syncOneMirrorArchive(peer, remoteId, entry, localArchived, remoteArchived) {
     if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string') return
-    if (typeof localArchived?.has !== 'function' || typeof remoteArchived?.has !== 'function') return
-    // Hidden because the peer is offline: the plugin archived it, not the user.
-    if (entry.offlineHidden === true) return
+    if (typeof localArchived?.has !== 'function') return
     const localId = entry.localId
     const localNow = localArchived.has(localId)
-    const remoteNow = remoteArchived.has(remoteId)
-    const previousLocal = typeof entry.archiveLocal === 'boolean' ? entry.archiveLocal : undefined
-    const previousRemote = typeof entry.archiveRemote === 'boolean' ? entry.archiveRemote : undefined
-    const known = previousLocal !== undefined && previousRemote !== undefined
-    let next
-    if (!known) {
-      // Archiving is an explicit intent, so an archived side wins on first sight.
-      const archived = localNow || remoteNow
-      next = { local: archived, remote: archived }
-    } else {
-      const localChanged = localNow !== previousLocal
-      const remoteChanged = remoteNow !== previousRemote
-      if (localChanged && !remoteChanged) next = { local: localNow, remote: localNow }
-      else if (remoteChanged && !localChanged) next = { local: remoteNow, remote: remoteNow }
-      else if (localChanged && remoteChanged) next = { local: localNow, remote: localNow }
-      else next = { local: localNow, remote: remoteNow }
+    const remoteKnown = typeof remoteArchived?.has === 'function'
+    const remoteNow = remoteKnown ? remoteArchived.has(remoteId) : undefined
+    const before = JSON.stringify([
+      entry.archiveLocal,
+      entry.archiveRemote,
+      entry.archiveDesired,
+      entry.offlineHidden,
+      entry.restorePending,
+    ])
+    // Offline hiding archived this row on the plugin's behalf. The peer is
+    // back (this pass only runs for online peers), so that local state is not
+    // user intent: restore the remembered direction and ask the mirror sync to
+    // re-attach the Session to its Workspace.
+    const hidden = entry.offlineHidden === true
+    if (hidden) {
+      entry.restorePending = true
+      delete entry.offlineHidden
     }
-    try {
-      if (next.local !== localNow) await this.applyMirrorArchive(localId, next.local)
-      if (next.remote !== remoteNow) await this.remoteCall(peer.id, next.remote ? 'session.archive' : 'session.unarchive', { sessionId: remoteId }, 15_000)
-      if (entry.archiveLocal !== next.local || entry.archiveRemote !== next.remote) {
-        entry.archiveLocal = next.local
-        entry.archiveRemote = next.remote
-        this.mirrorArchiveStates.set(localId, next)
-        this.saveMirrorStore()
+    const previousLocal = typeof entry.archiveLocal === 'boolean' ? entry.archiveLocal : localNow
+    const previousRemote = typeof entry.archiveRemote === 'boolean' ? entry.archiveRemote : remoteNow
+    let desired = typeof entry.archiveDesired === 'boolean' ? entry.archiveDesired : previousLocal
+    // A user change always wins: the remote user first, then the local user.
+    if (remoteKnown && remoteNow !== previousRemote) desired = remoteNow
+    const localChanged = !hidden && localNow !== previousLocal
+    if (localChanged) desired = localNow
+    // While hidden, the only possible user action is restoring the row.
+    if (hidden && previousLocal === true && localNow === false) desired = false
+    entry.archiveDesired = desired
+    let localSynced = localNow
+    let remoteSynced = remoteNow
+    const backoff = Number.isFinite(entry.archiveRetryAfter) && entry.archiveRetryAfter > Date.now()
+    if (!backoff) {
+      if (localNow !== desired) {
+        try {
+          await this.applyMirrorArchive(localId, desired)
+          localSynced = desired
+          delete entry.archiveRetryAfter
+        } catch (error) {
+          entry.archiveRetryAfter = Date.now() + ARCHIVE_RETRY_MS
+          this.lastArchiveError = `local ${localId}: ${errorMessage(error)}`
+          this.log('warn', `dsh-link: mirror archive ${localId}: ${errorMessage(error)}`)
+        }
       }
-    } catch (error) {
-      this.lastArchiveError = `sync ${remoteId}: ${errorMessage(error)}`
-      this.log('warn', `dsh-link: mirror archive sync ${remoteId}: ${errorMessage(error)}`)
+      const unsent = typeof entry.archiveRemote === 'boolean' && entry.archiveRemote !== desired
+      // Without a baseline only a change observed in this pass, or a push that
+      // never confirmed, is worth sending: an unreachable peer must not turn a
+      // self-healing pass into dozens of stacked timeouts.
+      const mustPush = remoteKnown ? remoteNow !== desired : unsent || localChanged
+      if (mustPush) {
+        try {
+          await this.remoteCall(peer.id, desired ? 'session.archive' : 'session.unarchive', { sessionId: remoteId }, 15_000)
+          remoteSynced = desired
+          delete entry.archiveRetryAfter
+        } catch (error) {
+          if (isUnknownSessionError(error)) {
+            // The peer Session is gone for good: retrying cannot change its
+            // archive set, so stop reconciling this dead mirror mapping.
+            entry.archiveUnavailable = true
+            this.log('warn', `dsh-link: mirror ${remoteId} is gone on ${peer.name ?? peer.id}: ${errorMessage(error)}`)
+          } else {
+            entry.archiveRetryAfter = Date.now() + ARCHIVE_RETRY_MS
+            this.lastArchiveError = `sync ${remoteId}: ${errorMessage(error)}`
+            this.log('warn', `dsh-link: mirror archive sync ${remoteId}: ${errorMessage(error)}`)
+          }
+        }
+      }
+    }
+    entry.archiveLocal = localSynced
+    if (remoteSynced !== undefined) entry.archiveRemote = remoteSynced
+    const after = JSON.stringify([
+      entry.archiveLocal,
+      entry.archiveRemote,
+      entry.archiveDesired,
+      entry.offlineHidden,
+      entry.restorePending,
+    ])
+    if (before !== after) {
+      this.mirrorArchiveStates.set(localId, { local: entry.archiveLocal, remote: entry.archiveRemote, desired })
+      this.saveMirrorStore()
     }
   }
 
@@ -2457,6 +2564,10 @@ class LinkHost {
       fallback = await this.ensureRemoteProjectWorkspace(peer, name, device, undefined)
       return fallback
     }
+    // Restore every mirror hidden while this peer was offline before the
+    // recent-Session window is considered: rows outside the window used to be
+    // left archived forever.
+    await this.restoreHiddenMirrors(peer, device, ensureFallback)
 
     let localSummaries
     try {
@@ -2503,18 +2614,25 @@ class LinkHost {
         device.sessions[remoteSessionId] = entry
         // A new mirror adopts the remote archive state immediately, so an
         // archived remote Session never flashes into the local workspace.
-        entry.archiveLocal = (await loadRemoteArchived()).has(remoteSessionId)
-        entry.archiveRemote = entry.archiveLocal
+        const archivedAtCreation = (await loadRemoteArchived()).has(remoteSessionId)
+        entry.archiveLocal = archivedAtCreation
+        entry.archiveRemote = archivedAtCreation
+        entry.archiveDesired = archivedAtCreation
       }
       entry.workspaceId = target.key
       entry.updatedAt = item.updatedAt ?? entry.updatedAt ?? 0
+      // A mirror whose peer Session reappeared can be reconciled again.
+      if (entry.archiveUnavailable === true) delete entry.archiveUnavailable
       const local = this.service('sessions')?.get(entry.localId)
       if (local === undefined && !localIds.has(entry.localId)) {
         try {
           const created = await this.requireSessions().create({ workspaceId: target.workspace.id, sessionId: entry.localId })
           entry.remoteSeq = -1
           await target.workspace.attachSession(created.sessionId).catch(() => {})
-          if (entry.archiveLocal === true) await this.applyMirrorArchive(entry.localId, true).catch(() => {})
+          // A recreated mirror row starts unarchived; only the remembered user
+          // direction may hide it again.
+          entry.archiveLocal = entry.archiveDesired === true
+          if (entry.archiveLocal) await this.applyMirrorArchive(entry.localId, true).catch(() => {})
           // A fresh mirror starts from the remote Session's model and thinking
           // level, so the native composer shows what the remote will use.
           const remoteSelection = this.normalizeModelSelection(item.modelSelection)
@@ -2527,12 +2645,8 @@ class LinkHost {
           continue
         }
       } else {
-        // Never touch the archive state of a known mirror here: only a peer
-        // that went offline is restored when it comes back.
-        if (entry.offlineHidden === true) {
-          if (entry.archiveLocal !== true) await this.applyMirrorArchive(entry.localId, false).catch(() => {})
-          delete entry.offlineHidden
-        }
+        // Archive direction is owned by syncPeerArchives; this pass only keeps
+        // the Workspace attachment and restores rows hidden while offline.
         await target.workspace.attachSession(entry.localId).catch(() => {})
       }
       const live = this.service('sessions')?.get(entry.localId)
@@ -2541,6 +2655,49 @@ class LinkHost {
         await this.syncMirrorHistory(peer, entry, remoteSessionId)
       }
     }
+  }
+
+  /**
+   * Bring back mirrors the offline hiding pass archived.
+   *
+   * Offline hiding archives every mirrored Session and drops the projected
+   * Workspaces, so restoring one row has two parts: apply the direction the
+   * user had (`archiveDesired`) and re-attach the Session to its Workspace.
+   * This walks every known mirror instead of only the recent-Session window,
+   * which is what left older rows archived after a reconnect.
+   */
+  async restoreHiddenMirrors(peer, device, ensureFallback) {
+    const registry = this.service('workspaceRegistry')
+    let changed = false
+    for (const entry of Object.values(device.sessions ?? {})) {
+      if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string') continue
+      if (entry.offlineHidden !== true && entry.restorePending !== true) continue
+      const desired = typeof entry.archiveDesired === 'boolean'
+        ? entry.archiveDesired
+        : (typeof entry.archiveLocal === 'boolean' ? entry.archiveLocal : false)
+      entry.archiveDesired = desired
+      try {
+        await this.applyMirrorArchive(entry.localId, desired)
+      } catch (error) {
+        this.log('warn', `dsh-link: mirror restore ${entry.localId}: ${errorMessage(error)}`)
+      }
+      entry.archiveLocal = desired
+      let mapping = device.workspaces?.[entry.workspaceId]
+      if (typeof mapping?.localWorkspaceId !== 'string' && ensureFallback !== undefined) {
+        await ensureFallback().catch(() => undefined)
+        mapping = device.workspaces?.['']
+      }
+      const workspace = registry !== undefined && typeof mapping?.localWorkspaceId === 'string'
+        ? registry.get(mapping.localWorkspaceId)
+        : undefined
+      if (workspace !== undefined) await workspace.attachSession(entry.localId).catch(() => {})
+      delete entry.offlineHidden
+      delete entry.restorePending
+      this.mirrorArchiveStates.set(entry.localId, { local: entry.archiveLocal, remote: entry.archiveRemote, desired })
+      changed = true
+    }
+    if (changed) this.saveMirrorStore()
+    return changed
   }
 
   /** Normalize one model selection: a flat selection or the projection wire view. */
@@ -2749,7 +2906,10 @@ class LinkHost {
     if (registry !== undefined) {
       await registry.archiveSession(oldLocalId, { stopActivity: true }).catch(() => {})
       await registry.archiveSession(nextLocalId, { stopActivity: true }).catch(() => {})
-      if (entry.archiveLocal !== true) await registry.unarchiveSession(nextLocalId).catch(() => {})
+      const desired = typeof entry.archiveDesired === 'boolean' ? entry.archiveDesired : entry.archiveLocal === true
+      if (desired !== true) await registry.unarchiveSession(nextLocalId).catch(() => {})
+      entry.archiveDesired = desired
+      entry.archiveLocal = desired === true
     }
     await workspace.attachSession(nextLocalId).catch(() => {})
     entry.localId = nextLocalId
@@ -3168,6 +3328,11 @@ class LinkHost {
               title: entry.title ?? '',
               localArchived: localSet.has(entry.localId),
               remoteArchived: remoteSet.has(remoteId),
+              archiveLocal: entry.archiveLocal ?? null,
+              archiveRemote: entry.archiveRemote ?? null,
+              archiveDesired: entry.archiveDesired ?? null,
+              archiveUnavailable: entry.archiveUnavailable === true,
+              offlineHidden: entry.offlineHidden === true,
               state: this.mirrorArchiveStates.get(entry.localId) ?? null,
             })
           }
@@ -3757,9 +3922,20 @@ async function handleApiRoute(request, host) {
           await host.remoteCall(peer.id, archived ? 'session.archive' : 'session.unarchive', { sessionId: body.sessionId })
           const mirror = host.mirrorForRemote(peer.id, body.sessionId)
           const registry = host.service('workspaceRegistry')
-          if (mirror !== undefined && registry !== undefined) {
-            if (archived) await registry.archiveSession(mirror.entry.localId, { stopActivity: true }).catch(() => {})
-            else await registry.unarchiveSession(mirror.entry.localId).catch(() => {})
+          if (mirror !== undefined) {
+            if (registry !== undefined) {
+              if (archived) await registry.archiveSession(mirror.entry.localId, { stopActivity: true }).catch(() => {})
+              else await registry.unarchiveSession(mirror.entry.localId).catch(() => {})
+            }
+            // Record the explicit user direction so the 3s reconcile keeps it
+            // instead of reading this call as an unexplained state change.
+            mirror.entry.archiveDesired = archived
+            mirror.entry.archiveLocal = archived
+            mirror.entry.archiveRemote = archived
+            delete mirror.entry.offlineHidden
+            delete mirror.entry.restorePending
+            host.mirrorArchiveStates.set(mirror.entry.localId, { local: archived, remote: archived, desired: archived })
+            host.saveMirrorStore()
           }
           return jsonResponse(200, { ok: true })
         }

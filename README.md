@@ -3,7 +3,7 @@
 > 用一台你自己的公网 relay，把多台电脑上的 **DeepSeek Harness（DSH）** 和 **Android 手机** 连成一个只属于你的私有空间：在这台电脑上直接看到、打开、操作另一台电脑的 DSH 会话；本机 AI 也能用工具驱动远程 DSH；手机可以连接多台电脑，并用语音输入把话发到指定电脑、由那台电脑本地识别后把文字传回手机。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Plugin](https://img.shields.io/badge/plugin-1.2.1-brightgreen)
+![Plugin](https://img.shields.io/badge/plugin-1.2.2-brightgreen)
 ![Protocol](https://img.shields.io/badge/protocol-v1-blue)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84)
 
@@ -168,7 +168,7 @@ git clone https://github.com/yuyeyubee/dsh-link.git
 - 每台电脑镜像它**最近 10 个**非子代理会话（正在运行的额外保留），按远程项目分组；远程新会话约 60 秒内出现，打开会话时立即补拉最新记录。
 - **远程电脑离线时对应分组会被移除**，重新上线后自动重建并复用原来的镜像会话 id，不会产生重复副本。
 - **在远程分组里新建会话**：自动在远端创建对应会话，首条提示和后续回复都由远端执行。
-- **归档双向同步**：本机归档远程会话，远端也归档；远端归档后本机也对齐归档。归档方向按镜像持久化保存，镜像刷新或重新上线都不会改动它。
+- **归档双向同步**：本机归档远程会话，远端也归档；远端归档后本机也对齐归档。每个镜像单独保存「用户想要的归档方向」，与插件自己写入的临时状态分开：对端离线时镜像行会被隐藏，重新上线后按原方向完整恢复（包括最近 10 个之外的旧镜像），推送失败会在下一轮重试，所以取消归档不会被反向覆盖。
 - **模型/思考强度双向同步**：在本机选择器（或远程设置齿轮）里改，5 秒内同步到执行提示词的那台电脑；发送提示词前还会先同步一次。远程电脑上改了也会回同步到本机镜像。Agent 预设由远程设置齿轮控制。
 
 ### 2. 跨设备管理页
@@ -283,7 +283,7 @@ git clone https://github.com/yuyeyubee/dsh-link.git
 - 升级到 1.1.0 前同步过的旧镜像历史仍是旧版文本形式；需要 `link_debug what=rebuild-mirrors` 重建（旧镜像会被归档，新镜像自动补拉远端历史）。
 - 原生输入框发送走「拦截本地 step + 转发远程」：本地这一轮会以结束/blocked 收尾，远程回复随后追加；极短时间内的重复发送请等待上一条回复。
 - 长文本会截断（防止超大帧）：用户/助手文本 8 KiB、思考 4 KiB、工具参数 4 KiB、工具结果 2 KiB；完整内容需到目标电脑查看。
-- 协议 v1 不做跨版本兼容承诺；插件、relay、App 请使用同一版本（插件 1.2.1 / 协议 v1）。
+- 协议 v1 不做跨版本兼容承诺；插件、relay、App 请使用同一版本（插件 1.2.2 / 协议 v1）。
 - APK 为自签名 debug 包，安装时需允许未知来源；上架应用商店需自行配置 release 签名。
 
 ## 排障
@@ -321,10 +321,10 @@ node tools/probe-client.mjs --pairing-file ~/.dsh/dsh-link/pairing-code.txt --me
 
 | 组件 | 版本 | 说明 |
 | --- | --- | --- |
-| DSH Link 插件 | 1.2.1 | 新增「流式输出」开关、跨设备管理页、远程会话设置（模型/思考强度/预设/归档） |
+| DSH Link 插件 | 1.2.2 | 修复离线恢复与取消归档不同步：归档方向按用户意图持久化，隐藏镜像重新上线后完整恢复；含「流式输出」开关、跨设备管理页、远程会话设置 |
 | 协议 | v1 | 新增字段向后兼容；新增方法无需升版 |
 | relay | 1.0.0（protocol v1） | Node.js ≥ 20，`ws` 单依赖 |
-| Android App | 1.2.1 | minSdk 26（Android 8.0+），协议 v1 |
+| Android App | 1.2.1 | minSdk 26（Android 8.0+），协议 v1（与 1.2.2 插件兼容） |
 
 升级插件后如果版本号没变，是 Host 半仍在内存中运行旧模块：在「设置 → 插件」里关闭再打开 dsh-link，或重启 DSH 即可。
 
