@@ -705,8 +705,13 @@ class LinkHost {
     this.mirrors = { version: 1, devices: {} }
     this.mirrorWatches = new Map()
     this.mirrorTimer = undefined
+    this.peerStateTimer = undefined
     this.mirrorSyncTimer = undefined
     this.mirrorSyncing = false
+    this.peerStateTimer = undefined
+    this.peerStateSyncing = false
+    this.mirrorArchiveStates = new Map()
+    this.mirrorModelStates = new Map()
   }
 
   /** Resolve a host service without failing when the composition lacks it. */
@@ -808,6 +813,7 @@ class LinkHost {
     if (this.isConfigured()) this.connectRelay()
     else this.setState('unconfigured')
     this.startMirrorTimer()
+    this.startPeerStateTimer()
   }
 
   /** Import `~/.dsh/dsh-link/pairing.txt` once, then delete it. */
@@ -860,7 +866,7 @@ class LinkHost {
       logger: { log: (level, message) => this.log(level, message) },
       onPeers: (peers) => {
         this.peers = peers
-        if (peers.length > 0) this.scheduleMirrorSync()
+        if (this.relay?.state === 'connected') this.scheduleMirrorSync()
       },
       onState: (state) => {
         this.setState(state)
@@ -894,6 +900,7 @@ class LinkHost {
   /** Stop everything; the plugin effect's cleanup uses this. */
   stop() {
     clearInterval(this.mirrorTimer)
+    clearInterval(this.peerStateTimer)
     clearTimeout(this.mirrorSyncTimer)
     this.mirrorTimer = undefined
     this.mirrorSyncTimer = undefined
@@ -1506,6 +1513,53 @@ class LinkHost {
     this.mirrorTimer.unref?.()
   }
 
+  /** Delete projected Workspaces of peers that are no longer online. */
+  async pruneOfflinePeerWorkspaces() {
+    const online = new Set(this.peers.map((peer) => peer.id))
+    const registry = this.service('workspaceRegistry')
+    let changed = false
+    for (const [deviceId, device] of Object.entries(this.mirrors.devices ?? {})) {
+      if (online.has(deviceId)) continue
+      for (const entry of Object.values(device.sessions ?? {})) {
+        if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string') continue
+        if (registry !== undefined) {
+          try {
+            await registry.archiveSession(entry.localId, { stopActivity: true })
+          } catch {
+            // already archived or gone
+          }
+        }
+        this.mirrorArchiveStates.delete(entry.localId)
+        this.mirrorModelStates.delete(entry.localId)
+      }
+      device.sessions = {}
+      const mappings = Object.values(device.workspaces ?? {})
+      for (const mapping of mappings) {
+        const workspaceId = mapping?.localWorkspaceId
+        if (typeof workspaceId !== 'string' || workspaceId.length === 0) continue
+        if (registry !== undefined) {
+          try {
+            await registry.delete(workspaceId)
+          } catch {
+            // already gone
+          }
+        }
+      }
+      device.workspaces = {}
+      changed = true
+    }
+    if (changed) this.saveMirrorStore()
+  }
+
+  /** Poll archive/model state for online mirrors. */
+  startPeerStateTimer() {
+    clearInterval(this.peerStateTimer)
+    this.peerStateTimer = setInterval(() => {
+      if (this.relay?.state === 'connected') void this.syncPeerState()
+    }, 5_000)
+    this.peerStateTimer.unref?.()
+  }
+
   /** Mirror the recent Sessions of every online peer. */
   async syncMirrors() {
     if (this.mirrorSyncing || this.relay === undefined || this.relay.state !== 'connected') return
@@ -1518,6 +1572,7 @@ class LinkHost {
           this.log('warn', `dsh-link: mirror sync ${peer.name ?? peer.id}: ${errorMessage(error)}`)
         }
       }
+      await this.pruneOfflinePeerWorkspaces()
       this.saveMirrorStore()
     } finally {
       this.mirrorSyncing = false
@@ -1918,7 +1973,7 @@ class LinkHost {
     const name = typeof info?.name === 'string' && info.name.length > 0 ? info.name : (peer.name ?? peer.id)
     const list = await this.remoteCall(peer.id, 'session.list', {}, 20_000)
     const items = (Array.isArray(list?.items) ? list.items : [])
-      .filter((item) => item !== null && typeof item === 'object' && typeof item.sessionId === 'string' && item.parentSessionId == null)
+      .filter((item) => item !== null && typeof item === 'object' && typeof item.sessionId === 'string' && item.parentSessionId == null && item.blank !== true)
       .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
     const selected = items.filter((item, index) => index < MAX_MIRROR_SESSIONS || item.running === true)
     const device = this.mirrors.devices[peer.id] ?? { name, workspaces: {}, sessions: {} }
@@ -1971,8 +2026,10 @@ class LinkHost {
       if (target === undefined) continue
       let entry = device.sessions[remoteSessionId]
       if (entry === undefined) {
+        let localId = this.localMirrorId(peer.id, remoteSessionId)
+        if (localIds.has(localId)) localId = `${localId}-${Date.now().toString(36)}`
         entry = {
-          localId: this.localMirrorId(peer.id, remoteSessionId),
+          localId,
           title: typeof item.title === 'string' ? item.title : '',
           remoteSeq: -1,
           updatedAt: item.updatedAt ?? 0,
@@ -1994,6 +2051,9 @@ class LinkHost {
           continue
         }
       } else {
+        const registry = this.service('workspaceRegistry')
+        if (registry !== undefined) await registry.unarchiveSession(entry.localId).catch(() => {})
+        delete entry.offlineHidden
         await target.workspace.attachSession(entry.localId).catch(() => {})
       }
       const live = this.service('sessions')?.get(entry.localId)
@@ -2001,6 +2061,181 @@ class LinkHost {
         await this.renameMirror(live, entry, typeof item.title === 'string' ? item.title : '')
         await this.syncMirrorHistory(peer, entry, remoteSessionId)
       }
+    }
+  }
+
+  /** Normalize one model selection projection. */
+  normalizeModelSelection(value) {
+    if (value === null || typeof value !== 'object') return null
+    const used = value.lastUsed !== undefined && value.lastUsed !== null
+      ? value.lastUsed
+      : (value.next !== undefined && value.next !== null ? value.next : value)
+    if (used === null || typeof used !== 'object') return null
+    if (typeof used.provider !== 'string' || used.provider.length === 0) return null
+    if (typeof used.model !== 'string' || used.model.length === 0) return null
+    const reasoningEffort = typeof used.reasoningEffort === 'string' ? used.reasoningEffort : ''
+    return { provider: used.provider, model: used.model, ...(reasoningEffort !== '' ? { reasoningEffort } : {}) }
+  }
+
+  /** Read the model selection projection from one Session summary. */
+  selectionOfSummary(summary) {
+    const projections = summary?.projections?.values ?? summary?.projections
+    if (projections === null || typeof projections !== 'object') return null
+    return this.normalizeModelSelection(projections.modelSelection)
+  }
+
+  /** Whether one selection projection equals another. */
+  sameModelSelection(left, right) {
+    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null)
+  }
+
+  /** Apply one local archive state to the local mirror Session. */
+  async applyMirrorArchive(localId, archived) {
+    const registry = this.service('workspaceRegistry')
+    if (registry === undefined) return
+    if (archived) await registry.archiveSession(localId, { stopActivity: true })
+    else await registry.unarchiveSession(localId)
+  }
+
+  /** Apply one model selection to a local mirror Session. */
+  async applyMirrorModel(localId, selection) {
+    const controller = this.service('sessionController')
+    if (controller === undefined || typeof controller.selectModel !== 'function') return false
+    await controller.selectModel({
+      sessionId: localId,
+      provider: selection.provider,
+      model: selection.model,
+      ...(typeof selection.reasoningEffort === 'string' && selection.reasoningEffort !== '' ? { reasoningEffort: selection.reasoningEffort } : {}),
+    })
+    return true
+  }
+
+  /** Keep mirror archive and model state aligned with the online remote Host. */
+  async syncPeerState() {
+    if (this.peerStateSyncing || this.relay === undefined || this.relay.state !== 'connected') return
+    this.peerStateSyncing = true
+    try {
+      const localSnapshot = await this.workspaceSnapshot().catch(() => null)
+      const localArchived = new Set(Array.isArray(localSnapshot?.archivedSessionIds) ? localSnapshot.archivedSessionIds : [])
+      const localList = await this.sessionList().catch(() => [])
+      const localById = new Map((Array.isArray(localList) ? localList : []).map((item) => [item.sessionId, item]))
+      for (const peer of [...this.peers]) {
+        const device = this.mirrors.devices?.[peer.id]
+        if (device === undefined) continue
+        const entries = Object.entries(device.sessions ?? {})
+        if (entries.length === 0) continue
+        let remoteArchived = null
+        try {
+          const snapshot = await this.remoteCall(peer.id, 'workspace.snapshot', {}, 15_000)
+          if (snapshot !== null && typeof snapshot === 'object') {
+            remoteArchived = new Set(Array.isArray(snapshot.archivedSessionIds) ? snapshot.archivedSessionIds : [])
+          }
+        } catch {
+          remoteArchived = null
+        }
+        let remoteById = new Map()
+        try {
+          const list = await this.remoteCall(peer.id, 'session.list', {}, 15_000)
+          remoteById = new Map((Array.isArray(list?.items) ? list.items : []).filter((item) => item !== null && typeof item === 'object' && typeof item.sessionId === 'string').map((item) => [item.sessionId, item]))
+        } catch {
+          remoteById = new Map()
+        }
+        for (const [remoteId, entry] of entries) {
+          if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string') continue
+          const localId = entry.localId
+          if (remoteArchived !== null) {
+            const localNow = localArchived.has(localId)
+            const remoteNow = remoteArchived.has(remoteId)
+            const previous = this.mirrorArchiveStates.get(localId)
+            if (previous === undefined) {
+              if (localNow !== remoteNow) {
+                try {
+                  await this.applyMirrorArchive(localId, remoteNow)
+                  this.mirrorArchiveStates.set(localId, { local: remoteNow, remote: remoteNow })
+                } catch (error) {
+                  this.log('warn', `dsh-link: mirror archive initial ${localId}: ${errorMessage(error)}`)
+                }
+              } else {
+                this.mirrorArchiveStates.set(localId, { local: localNow, remote: remoteNow })
+              }
+            } else {
+              const localChanged = localNow !== previous.local
+              const remoteChanged = remoteNow !== previous.remote
+              if (localChanged && !remoteChanged) {
+                try {
+                  await this.remoteCall(peer.id, localNow ? 'session.archive' : 'session.unarchive', { sessionId: remoteId }, 15_000)
+                  this.mirrorArchiveStates.set(localId, { local: localNow, remote: localNow })
+                } catch (error) {
+                  this.log('warn', `dsh-link: mirror archive push ${remoteId}: ${errorMessage(error)}`)
+                }
+              } else if (remoteChanged && !localChanged) {
+                try {
+                  await this.applyMirrorArchive(localId, remoteNow)
+                  this.mirrorArchiveStates.set(localId, { local: remoteNow, remote: remoteNow })
+                } catch (error) {
+                  this.log('warn', `dsh-link: mirror archive pull ${localId}: ${errorMessage(error)}`)
+                }
+              } else if (localChanged && remoteChanged && remoteNow !== localNow) {
+                try {
+                  await this.applyMirrorArchive(localId, remoteNow)
+                  this.mirrorArchiveStates.set(localId, { local: remoteNow, remote: remoteNow })
+                } catch (error) {
+                  this.log('warn', `dsh-link: mirror archive conflict ${localId}: ${errorMessage(error)}`)
+                }
+              } else {
+                this.mirrorArchiveStates.set(localId, { local: localNow, remote: remoteNow })
+              }
+            }
+          }
+          const localSummary = localById.get(localId)
+          const remoteSummary = remoteById.get(remoteId)
+          if (localSummary === undefined || remoteSummary === undefined) continue
+          const localSelection = this.selectionOfSummary(localSummary)
+          const remoteSelection = this.selectionOfSummary(remoteSummary)
+          if (localSelection === null && remoteSelection === null) continue
+          const previous = this.mirrorModelStates.get(localId)
+          if (previous === undefined) {
+            if (remoteSelection !== null && !this.sameModelSelection(localSelection, remoteSelection)) {
+              try {
+                if (await this.applyMirrorModel(localId, remoteSelection)) this.mirrorModelStates.set(localId, { local: remoteSelection, remote: remoteSelection })
+              } catch (error) {
+                this.log('warn', `dsh-link: mirror model initial ${localId}: ${errorMessage(error)}`)
+              }
+            } else {
+              this.mirrorModelStates.set(localId, { local: localSelection, remote: remoteSelection })
+            }
+          } else {
+            const localChanged = !this.sameModelSelection(localSelection, previous.local)
+            const remoteChanged = !this.sameModelSelection(remoteSelection, previous.remote)
+            if (localChanged && !remoteChanged && localSelection !== null) {
+              try {
+                await this.remoteCall(peer.id, 'session.selectModel', { sessionId: remoteId, selection: localSelection }, 20_000)
+                this.mirrorModelStates.set(localId, { local: localSelection, remote: localSelection })
+              } catch (error) {
+                this.log('warn', `dsh-link: mirror model push ${remoteId}: ${errorMessage(error)}`)
+              }
+            } else if (remoteChanged && !localChanged && remoteSelection !== null) {
+              try {
+                if (await this.applyMirrorModel(localId, remoteSelection)) this.mirrorModelStates.set(localId, { local: remoteSelection, remote: remoteSelection })
+              } catch (error) {
+                this.log('warn', `dsh-link: mirror model pull ${localId}: ${errorMessage(error)}`)
+              }
+            } else if (localChanged && remoteChanged && !this.sameModelSelection(localSelection, remoteSelection)) {
+              if (remoteSelection !== null) {
+                try {
+                  if (await this.applyMirrorModel(localId, remoteSelection)) this.mirrorModelStates.set(localId, { local: remoteSelection, remote: remoteSelection })
+                } catch (error) {
+                  this.log('warn', `dsh-link: mirror model conflict ${localId}: ${errorMessage(error)}`)
+                }
+              }
+            } else {
+              this.mirrorModelStates.set(localId, { local: localSelection, remote: remoteSelection })
+            }
+          }
+        }
+      }
+    } finally {
+      this.peerStateSyncing = false
     }
   }
 
