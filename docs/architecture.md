@@ -69,8 +69,14 @@
    时，瞬时 `assistant-stream` 分片通过本机 Cordis 的 `agent/assistant-stream` 事件转发给
    Web UI，于是镜像会话也能像原生会话一样逐字流式显示；
 4. 在原生输入框发送时，`agent/pre-step` 门禁拦截本机模型请求，把 prompt 转发到远程 Host，
-   远程回复再通过 watch 追加回来；
-5. 镜像映射存于 `~/.dsh/dsh-link/mirrors.json`（0600），包含设备名、标题、远程 seq、
+   并在转发前用 `agent/pre-step` 携带的 `modelSelection` 把本机刚改过的模型/思考强度推给
+   远程（`session.selectModel`），避免这一轮仍用旧等级；远程回复再通过 watch 追加回来；
+5. 镜像打开时，本机会话头部选择器与远程会话的模型/思考强度双向同步：`syncPeerState` 每
+   5 秒对比两侧的 `modelSelection` projection（优先读 `next`，即下一次请求实际会用的选择），
+   本机改了就推给远程，远程改了就拉回本机；远程 Host 收到 `{ sessionId, selection }` 后
+   转成 DSH `sessionController.selectModel()` 需要的扁平参数
+   `{ sessionId, provider, model, reasoningEffort }`；
+6. 镜像映射存于 `~/.dsh/dsh-link/mirrors.json`（0600），包含设备名、标题、远程 seq、
    本地镜像 id、归档方向（`archiveLocal` / `archiveRemote`）和离线隐藏标记
    `offlineHidden`；不含 token。映射在远程离线时保留，重连后复用同一镜像会话，
    归档方向也只由 `syncPeerArchives` 更新，镜像刷新不会改动它。
@@ -88,6 +94,7 @@ Host 半把 DSH 的 `sessionController` 服务封装成一组方法：
 | `session.history` | `sessionController.events()` + `state()` |
 | `session.follow` | `sessionController.follow()`（冷会话不激活 Agent） |
 | `session.prompt/cancel/rename/create` | 同名 `sessionController` 方法 |
+| `session.selectModel` | `sessionController.selectModel()`（把 `selection` 摊平成 provider/model/reasoningEffort） |
 | `workspace.list` | `workspaceRegistry.list()` |
 | `speech.transcribe` | `speechToText.prepare/resolve/transcribe` |
 
