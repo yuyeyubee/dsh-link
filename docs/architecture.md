@@ -36,7 +36,7 @@
 | 组件 | 目录 | 职责 |
 | --- | --- | --- |
 | DSH 插件 Host 半 | `plugin/index.js` | 配对存储、WebSocket 客户端、主机 RPC、本地会话/语音适配、Agent 工具、同源 HTTP API |
-| DSH 插件 Web UI 半 | `plugin/client.js` | 侧边栏「跨设备」入口、远程工作区主面板、设置页 |
+| DSH 插件 Web UI 半 | `plugin/client.js` | 「跨设备」管理页（本机 + 每台设备标签页、搜索、新建/改名/归档）、远程工作区装饰（远程标签/会话头/齿轮）、远程会话设置弹窗、设置页与流式开关 |
 | Relay | `relay/` | 公网 TLS WebSocket 中转；只转发，不存业务数据 |
 | Android App | `android/` | 多设备会话控制、语音录制与回传、折叠屏适配 |
 | 协议 | `protocol/PROTOCOL.md` | 三方唯一契约 |
@@ -57,8 +57,9 @@
 
 为了让远程会话出现在 DSH 左侧「工作区」而不是插件页面，Host 半把远程会话**镜像**成本机会话：
 
-1. 每台在线电脑在 `~/.dsh/dsh-link/mirrors/<deviceId>/` 建一个真实目录，并注册为工作区
-   `[远程] <远程项目名> · <设备名>`（按远程 Workspace 分组）；
+1. 每台在线电脑按远程 Workspace 在 `~/.dsh/dsh-link/mirrors/<deviceId>/ws-<workspaceId>/`
+   建真实目录并注册为工作区 `[远程] <远程项目名> · <设备名>`；没有归属项目的会话进
+   `~/.dsh/dsh-link/mirrors/<deviceId>/_other/`，标题为 `[远程] 其他 · <设备名>`；
 2. 为最近 10 个非子代理远程会话创建本机镜像会话（`session-dshlink-<hash>`），把远程
    `session.history` 映射成 DSH 原生事件（`turn/start`、`user/message`、`step/start`、
    `assistant/message`、`tool/call`、`tool/result`、`step/end`、`turn/end`）。工具调用保留原生
@@ -86,6 +87,21 @@
 这样侧边栏分组、会话行、对话 UI、工具卡片全部复用 DSH 原生实现；插件页面只保留为
 设备/配对/Android 管理入口。
 
+### 3.2.1 跨设备管理页与远程会话设置
+
+Web UI 半另外提供一层「管理」界面，用于那些不适合只靠镜像完成的动作：
+
+- **本机与每台在线电脑的标签页**：每台设备调用自己的 `workspace.list` / `session.list`
+  组合出「项目 → 会话」树，并按置顶/归档 projection 排序；搜索在客户端过滤标题。
+- **新建/改名/归档/复制 ID**：`create`、`rename`、`renameWorkspace`、`archive` 等 op 直接
+  转成远程 RPC，作用在目标电脑上（不是镜像），因此和在那台电脑上操作等价。
+- **远程会话设置弹窗**：读取 `session.info` + `model.catalog` + 预设列表，写入时调用
+  `session.selectModel` / `session.selectPreset` / `session.rename` / `session.archive`；
+  镜像会把结果同步回来（标题、模型、归档方向）。
+- **流式输出开关**：`settings` op 写入本机 `config.json`；Host 在订阅 `session.follow`
+  时把 `assistantStream` 设为该偏好，并在关闭时丢弃/停止转发瞬时分片，同时对已打开的
+  watch 重订阅。
+
 ### 3.3 远程会话读取
 
 Host 半把 DSH 的 `sessionController` 服务封装成一组方法：
@@ -96,9 +112,13 @@ Host 半把 DSH 的 `sessionController` 服务封装成一组方法：
 | `session.history` | `sessionController.events()` + `state()` |
 | `session.follow` | `sessionController.follow()`（冷会话不激活 Agent） |
 | `session.prompt/cancel/rename/create` | 同名 `sessionController` 方法 |
+| `session.info` | 会话标题/cwd/模型/预设 projection |
+| `session.archive/unarchive/pin/unpin` | `sessionController` 对应方法（镜像归档与置顶） |
 | `session.selectModel` | `sessionController.selectModel()`（把 `selection` 摊平成 provider/model/reasoningEffort） |
-| `workspace.list` | `workspaceRegistry.list()` |
-| `speech.transcribe` | `speechToText.prepare/resolve/transcribe` |
+| `session.selectPreset` | `sessionController.selectPreset()` |
+| `model.catalog` | 本机模型目录（provider / model / 思考强度档位） |
+| `workspace.list/snapshot/rename/delete` | `workspaceRegistry` 对应方法 |
+| `speech.status/transcribe` | `speechToText.prepare/resolve/transcribe` |
 
 DSH 的原始事件被压成 7 种 `ChatRecord`（user / assistant / tool-call / tool-result /
 turn-start / turn-end / error），单条文本有上限，避免手机端收到几 MB 的日志。`assistant` 与
@@ -125,7 +145,8 @@ turn-start / turn-end / error），单条文本有上限，避免手机端收到
 
 插件 Host 半在 DSH Web 服务器注册两条同源认证路由：
 
-- `POST /api/dsh-link`：状态、配对、会话列表、历史、发送、停止、创建、改名、语音；
+- `POST /api/dsh-link`：状态、设置（含 `streaming` 开关）、配对、会话/工作区树、历史、
+  发送、停止、创建、改名、归档、模型/预设读写、镜像 watch、语音；
 - `POST /api/dsh-link/stream`：NDJSON 实时会话流。
 
 Web UI 半不直接连接 relay，也不接触 token 的保存逻辑；所有远程操作都经过本机
@@ -170,5 +191,5 @@ dsh-link/
   旧版文本形式，只有新同步的内容使用原生事件。附件上传、权限弹窗等完整 DSH UI 仍要到
   目标电脑本地操作。
 - 原生发送的门禁会让本地这一轮以结束/blocked 收尾，远程回复随后追加；请等待上一条回复。
-- 工具调用的参数/结果有截断；超长输出需要到目标电脑查看完整内容。
+- 长文本有截断（用户/助手 8 KiB、思考 4 KiB、工具参数 4 KiB、工具结果 2 KiB）；超长输出需要到目标电脑查看完整内容。
 - Android App 为自签名 APK，安装时需要允许「安装未知来源应用」。

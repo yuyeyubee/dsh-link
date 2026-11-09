@@ -10,7 +10,7 @@
 - 已实现：配对（`dshlink1.*`）、多设备切换、会话列表/新建/重命名、`session.follow` 实时记录 +
   `session.history` 补齐、发送（queue/steer）、停止、工具调用可折叠、错误态、语音识别、深/浅色、
   中文/英文、折叠屏铰链适配。
-- 构建：`./gradlew :app:assembleDebug`，产物 `app/build/outputs/apk/debug/app-debug.apk`。
+- 构建：`./gradlew :app:assembleDebug`，产物 `app/build/outputs/apk/debug/app-debug.apk`；版本 `1.2.1`（versionCode 2），与插件 1.2.1 / 协议 v1 同代。
 - 单元测试：`./gradlew :app:testDebugUnitTest`（配对码解析、relay 帧编解码、ChatRecord/follow 解析、WAV 头）。
 
 ## 环境（本机已装好的工具链）

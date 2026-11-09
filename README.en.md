@@ -1,8 +1,11 @@
-# DSH Link
+# DSH Link · Cross-device for DeepSeek Harness
 
-> Connect DeepSeek Harness (DSH) installs on several computers and an Android phone through your own relay server: one private space for your own devices. Browse and drive another computer's DSH Sessions from this one, and use voice input on the phone with recognizers that stay on the target computer.
+> One private relay of your own connects **DeepSeek Harness (DSH)** installations on several computers and an **Android phone** into a private space that belongs only to you: browse and drive another computer's DSH Sessions from this one, let the local agent steer a remote DSH with tools, and use voice input on the phone while recognition stays on the target computer.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Plugin](https://img.shields.io/badge/plugin-1.2.1-brightgreen)
+![Protocol](https://img.shields.io/badge/protocol-v1-blue)
+![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84)
 
 [中文](README.md) | **English**
 
@@ -10,15 +13,19 @@
 
 ![Remote device badge in the native conversation](docs/images/link-chat.png)
 
-## What it does
+## What you get
 
-- **Multi-computer link**: install the same DSH plugin on each computer and paste one pairing code. Traffic goes through your own relay over the public internet; no public IP, port forwarding, NAT traversal, or VPN is required on the computers.
-- **Remote Sessions in the DSH sidebar**: each remote project becomes a `[Remote] <project> · <device>` group under **Workspaces**; its Session rows carry a **Remote** badge and open in the **native DSH conversation**, not a plugin page.
-- **Native remote conversation**: remote messages, tool calls/results and turn state render in the normal chat, with the same collapsed-by-default tool cards and token-by-token streaming as a local turn (the **Streaming output** switch in Settings → Link can turn the token-by-token display off). Typing into the native composer forwards the prompt to the remote DSH; the local model is gated off.
-- **The local agent can drive another computer**: `link_sessions` / `link_read` / `link_prompt` / `link_create` / `link_cancel` tools let the AI on computer A operate DSH on computer B.
-- **Android app**: one app connects to multiple computers, browses and drives Sessions, supports dark/light themes and **foldables** (e.g. Huawei Mate X7) with a hinge-aware two-pane layout.
-- **Voice input round-trip**: record on the phone → send to the selected computer → its local SenseVoice recognizer → **text returns to the phone's editable input box**. Audio is never sent to a cloud recognizer.
-- **No exposed DSH ports**: both computers and the phone dial out to the relay; the relay forwards without storing conversation content.
+| Capability | What it does | Where |
+| --- | --- | --- |
+| **Mirrored remote workspaces** | Every online computer shows up under **Workspaces** as a `[Remote] <project> · <device>` group whose Session rows carry a **Remote** badge | Sidebar → Workspaces |
+| **Native remote conversation** | Remote messages, tool calls/results and turn state render in the normal DSH chat; tool cards stay collapsed by default and remote replies stream token by token. Sending from the native composer forwards the prompt to that computer | Click a remote Session |
+| **Cross-device manager** | One tab per computer (plus this one): search projects/Sessions, create Sessions, rename Sessions/projects, archive/unarchive, show archived, copy IDs, more actions | Sidebar → **Cross-device** |
+| **Remote Session settings** | Session title, model, reasoning effort, Agent preset and archive; model/reasoning effort sync both ways with the local selector | Gear next to the remote Session title (or on the Session row) |
+| **AI drives another computer** | 8 agent tools: list devices, list Sessions, read messages, create a Session, prompt and wait, cancel a turn, diagnostics | Just ask the AI in any DSH Session |
+| **Streaming output switch** | When off, this computer no longer requests/forwards transient assistant chunks; each remote reply appears once, when committed. Per-computer display preference | Settings → Cross-device |
+| **Android app** | One app for multiple computers: device switching, Session list/create/rename, send (queue/steer), stop, collapsible tool cards, dark/light, Chinese/English, foldable layout | `android/` |
+| **Phone voice input** | Record on the phone → send to the selected computer → its local SenseVoice recognizer → **text returns to the phone's editable composer** | Mic button in the app |
+| **No exposed ports** | Computers and the phone dial out to the relay; no public IP, port forwarding or VPN needed, and the relay forwards without storing conversation content | — |
 
 ## Architecture
 
@@ -40,18 +47,20 @@
                     └──────────────┘
 ```
 
-- **Plugin Host half** (`plugin/index.js`): pairing, relay client, remote Session RPC, local DSH adapters, speech recognition, agent tools, same-origin HTTP API.
-- **Plugin Web UI half** (`plugin/client.js`): mirrors remote Sessions into native workspaces/Sessions, adds the Remote badges and header device chip, and keeps the settings page.
-- **Session mirror** (`plugin/index.js`): creates a `[Remote] <device>` workspace, mirrors the 10 most recent Sessions, subscribes to `session.follow` while a mirror is open, appends remote records as native DSH events, and rejects local model steps for mirror Sessions while forwarding the prompt to the remote Host.
-- **Relay** (`relay/`): public TLS WebSocket; device directory and forwarding only, no business data stored.
-- **Android** (`android/`): Kotlin + Jetpack Compose; multi-device Sessions, voice recording round-trip, foldable layout.
-- **Protocol**: `protocol/PROTOCOL.md` is the single contract shared by Host, Web UI, app and relay.
+| Component | Directory | Responsibility |
+| --- | --- | --- |
+| Plugin Host half | `plugin/index.js` | Pairing and token storage, relay client, remote RPC, local DSH adapters, agent tools, speech recognition, same-origin HTTP API |
+| Plugin Web UI half | `plugin/client.js` | Cross-device manager, remote workspace decorations (badges, header chip, gear), settings page and the streaming switch |
+| Relay | `relay/` | Public TLS WebSocket forwarding: online device directory only, no business data stored |
+| Android app | `android/` | Kotlin + Jetpack Compose: multi-device Session control, voice round-trip, foldables |
+| Protocol | `protocol/PROTOCOL.md` | The single contract for Host / Web UI / app / relay (v1) |
+| Tools | `tools/` | `fake-host.mjs` simulates a remote computer, `probe-client.mjs` is a probe client |
 
 ## Repository layout
 
 ```
 dsh-link/
-├── plugin/      DSH bundle (Host + Web UI + locales + icon)
+├── plugin/      DSH bundle (Host + Web UI + locales + icon + unit tests)
 ├── relay/       relay server, deploy script, systemd unit, protocol tests
 ├── android/     Android app (Kotlin + Compose + foldables)
 ├── protocol/    v1 protocol specification
@@ -61,156 +70,239 @@ dsh-link/
 
 ## Quick start
 
-### 0. Prerequisites
+### 0. Requirements
 
-- A Linux server with a public IP (Ubuntu 22.04 works; 1 vCPU / 1 GB is enough; port 80 available for ACME).
-- One or more computers with **DSH Desktop 0.2.x**.
-- Android 7.0+ phone (Huawei Mate X7 and other HarmonyOS devices can install Android APKs).
+- One Linux server with a public IP (Ubuntu 22.04 verified, 1 vCPU / 1 GB is enough; inbound 80 and 8443).
+- One or more computers with **DSH Desktop 0.2.x** (0.2.1 / 0.2.2-rc.1 verified), macOS / Windows / Linux.
+- An **Android 8.0+** phone (HarmonyOS devices can install the APK through their Android compatibility layer). iOS is not supported.
 
 ### 1. Deploy the relay (once, on the server)
 
-The relay listens on **8443/TLS** and uses a Let's Encrypt certificate. If you do not own a domain, [sslip.io](https://sslip.io) maps `<server-ip>.sslip.io` to your IP, which is enough for a certificate.
+The relay listens on **8443/TLS** with a Let's Encrypt certificate. No domain needed: use [sslip.io](https://sslip.io) to resolve `<server-ip>.sslip.io` to your address.
 
 ```bash
 # on the server
 apt-get update && apt-get install -y certbot
-certbot certonly --standalone -d <SERVER_IP>.sslip.io --agree-tos -m you@example.com
+certbot certonly --standalone -d <server-ip>.sslip.io \
+  --non-interactive --agree-tos --register-unsafely-without-email
 git clone https://github.com/yuyeyubee/dsh-link.git /opt/dsh-link-src
 cd /opt/dsh-link-src/relay
-sudo ./deploy.sh        # installs deps, generates token/pairing code, installs systemd unit
-# custom domain: sudo DSHLINK_DOMAIN=relay.example.com ./deploy.sh
+sudo ./deploy.sh        # install deps, generate token/pairing code, install systemd unit
+# own domain: sudo DSHLINK_DOMAIN=relay.example.com ./deploy.sh
 ```
 
-After it completes:
+Afterwards:
 
-- service: `systemctl status dsh-link-relay`
-- authoritative pairing code: `/opt/dsh-link/pairing.txt` (0600; contains the token — keep it private)
-- public endpoint: `wss://<SERVER_IP>.sslip.io:8443/`
+- Service: `systemctl status dsh-link-relay` (Node.js ≥ 20 is required; `deploy.sh` checks it).
+- Authoritative pairing code: `/opt/dsh-link/pairing.txt` (0600, contains the token — keep it secret).
+- Public endpoint: `wss://<server-ip>.sslip.io:8443/`
 
-See [relay/README.md](relay/README.md) for renewal, token rotation, ports and firewall notes.
+> Certificate renewal, token rotation, ports/firewall and logs: see [relay/README.md](relay/README.md).
 
-### 2. Install the plugin on each computer
+### 2. Install the plugin on every computer
 
 ```bash
 git clone https://github.com/yuyeyubee/dsh-link.git
 ```
 
-Install the local bundle in DSH: ask the agent to call `plugin_manager` `install_bundle` with the absolute path of `dsh-link/plugin`, or use the Plugins settings page to install a local bundle.
+Install `dsh-link/plugin` as a **local bundle** in DSH (absolute path):
 
-After installation, refresh the DSH page (the desktop app usually applies it through HMR):
+- ask the agent to call `plugin_manager` → `install_bundle`, or
+- DSH Settings → Plugins → install a local bundle and pick that directory.
 
-- a **Link** entry appears in the left sidebar;
-- **Settings → Link** shows the pairing page.
+Refresh DSH afterwards (the desktop app usually applies it through HMR):
+
+- **Cross-device** appears in the sidebar;
+- **Settings → Cross-device** shows the pairing page;
+- **Workspaces** gain `[Remote] …` groups while other computers are online.
+
+> The plugin is installed as a `link:` bundle; do not move or delete the repository. If an update does not apply, toggle dsh-link off/on in Settings → Plugins or restart DSH; see [docs/faq.md](docs/faq.md).
 
 ### 3. Pair
 
-1. Open **Settings → Link**.
-2. Paste the whole `dshlink1.…` string from `/opt/dsh-link/pairing.txt` into the pairing field.
-3. Leave the device name empty to use the computer name.
-4. Click **Save pairing code**.
+1. Open **Settings → Cross-device**;
+2. paste the whole `dshlink1.…` string from `/opt/dsh-link/pairing.txt`;
+3. the device name is optional (defaults to the computer name and can be changed later);
+4. click **Save pairing code**.
 
-The page then shows **Connected** and the other online computers. Repeat on every computer.
+The page then shows **Connected**, this device, version, relay URL and the other online computers. Repeat on every computer.
 
-The **Streaming output** switch on the settings page controls how remote replies are shown: when on (the default) they stream character by character while the other computer generates them; when off each reply appears at once after it completes. It applies to both native mirror sessions and the plugin's own remote conversation view, and it is per computer — every install keeps its own preference.
+> The same pairing code can be copied to the phone. It embeds the space token — treat it like a password and never paste it into public chats or commit it.
 
-> The same pairing code is used by the phone. It contains the space token; treat it like a password.
->
-> The plugin also supports **automatic import**: on first start, if `~/.dsh/dsh-link/pairing.txt` exists, it is imported and then deleted (the token moves to the DSH credential store). This helps batch or remote setup.
+> **Auto-import**: on first start the plugin reads `~/.dsh/dsh-link/pairing.txt` when present, moves the token into the DSH credential store, and deletes the file — handy for batch or remote deployment.
 
 ### 4. Install the Android app
 
-Download `dsh-link-android-*.apk` from [Releases](https://github.com/yuyeyubee/dsh-link/releases/latest) and install it on the phone (allow installing from unknown sources).
+Download the APK from [Releases](https://github.com/yuyeyubee/dsh-link/releases) or build it yourself (`cd android && ./gradlew :app:assembleDebug`), then install it on the phone (allow "install unknown apps").
 
 ![Android app](docs/images/link-android.png)
 
-In the app:
+Then:
 
-1. paste the **same** `dshlink1.…` pairing code;
-2. pick an online computer at the top;
-3. browse Sessions, send prompts, stop a running turn;
-4. tap the microphone, record, stop; the selected computer transcribes and the text returns to the editable input box — review, edit, then send.
+1. Paste the **same** `dshlink1.…` pairing code (or expand "manual address and token" and enter `wss://` plus the token);
+2. online computers appear as pills at the top; tap the one you want to drive;
+3. browse Sessions, create, rename, send prompts (queue/steer), stop a running turn;
+4. tap the mic → record → finish → wait for the selected computer to transcribe → text lands in the composer for review before sending.
 
-### 5. Use remote Sessions directly in the DSH workspace
+> The app disables cleartext traffic (`usesCleartextTraffic=false`), so the relay must be `wss://`.
 
-After pairing, the DSH **Workspaces** list gains:
+## Usage
+
+### 1. Remote workspaces (native mirrors)
+
+After pairing, **Workspaces** in the DSH sidebar looks like:
 
 ```
-📁 [Remote] My project · Home MacBook
+📁 [Remote] my-project · Home MacBook
    ├─ Session A        Remote
    └─ Session B        Remote
-📁 MyGitHub             ← local workspace
-...
+📁 [Remote] other · Home MacBook      ← Sessions without a project
+📁 MyGitHub                           ← local project
 ```
 
-- Click the folder icon before `[Remote] <project> · <device>` to expand that project's Sessions; every remote row has a **Remote** badge, local rows do not.
-- Click a remote Session to open it in the **native DSH conversation**. The header shows `Remote · <device>` beside the title; messages, tool calls/results and turns use the normal DSH UI, including collapsed native tool cards and live streaming while the remote turn generates.
-- Type in the native composer: the prompt is forwarded to that computer's DSH and its reply is appended live. The local model is blocked, so it never answers locally.
-- New remote Sessions appear under the matching `[Remote]` project workspace within about 60 seconds; opening a Session pulls the latest records immediately.
-- **When a remote computer goes offline, its remote project groups are removed**; they are rebuilt when it comes back online, reusing the original mirror Session ids instead of minting duplicates.
-- **New Sessions inside a remote project group** are bound to a remote Session automatically; both the first prompt and later replies run on the remote Host, never locally. Older plugins or legacy local Sessions created inside a mirror project may still answer locally — update the plugin and start a new Session.
-- **Archive is bidirectional**: archiving a remote Session locally also archives it on the remote computer, and a remote archive is mirrored locally. The archive direction is persisted per mirror, so periodic mirror refreshes and reconnects never change it — archived rows do not reappear on their own. Both computers must run the **latest plugin**; older builds lack the `session.archive` RPC.
-- **Model and reasoning effort sync bidirectionally** for remote Sessions: changing them with the local DSH model/reasoning picker (or the remote-settings gear) reaches the computer that runs the prompt within about 5 seconds, and a prompt also syncs the selection right before it is forwarded so the turn cannot run with the previous level. Changes made on the remote computer flow back to the local mirror. Plugin/Agent presets remain controlled by the remote-settings gear. Both computers must run the **latest plugin**.
-- The **Link** sidebar entry remains as a management overview: devices, Sessions, pairing, Android hints and speech status.
+- Group title format: `[Remote] <remote project> · <device>`; Sessions without a project go to `[Remote] other · <device>`.
+- Remote Session rows carry a **Remote** badge; local rows do not.
+- Click a remote Session to open it in the **native DSH conversation**: the header shows `Remote · <device>`, messages/tool calls/results/turns render natively, and tool calls collapse into native tool cards.
+- Remote replies stream token by token while the remote turn generates; turn it off in **Settings → Cross-device → Streaming output** (below).
+- Typing into the native composer forwards the prompt to that computer and appends the reply here; the local model is gated off, so it will not answer a second time.
+- Each computer mirrors its **10 most recent** non-subagent Sessions (running ones are kept even beyond that), grouped by remote project. New remote Sessions appear within about 60 seconds and opening one immediately pulls the latest records.
+- **When a computer goes offline its group is removed**, and rebuilt with the same mirror Session ids when it returns — no duplicates.
+- **Creating a Session inside a remote group** creates the Session on that computer; its first prompt and every reply run there.
+- **Archive syncs both ways**: archiving a remote Session here archives it there, and archiving there brings the mirror in line. The archive direction is persisted per mirror, so refreshes and reconnects never flip it.
+- **Model / reasoning effort sync both ways**: changing the local selector (or the remote-settings gear) reaches the computer that executes prompts within 5 seconds, and is pushed again right before a prompt is sent. Changes made there sync back to the mirror. Agent presets are controlled by the remote-settings gear.
 
-### 6. Let the agent drive another computer
+### 2. Cross-device manager
 
-Just ask in any DSH conversation, e.g. "what Sessions are on the laptop?" or "ask the home computer to continue the tests". The agent uses:
+Open **Cross-device** in the sidebar (or the gear inside the panel):
 
-| Tool | Purpose |
+- **Tabs**: this computer plus every online computer; a connection dot shows relay state and the gear opens the settings sheet.
+- **Search**: filter by project name, project path, Session title or cwd.
+- **New Session**: create on the active device's tab, optionally choosing a project ("let the remote device choose" is available) and a title.
+- **Session/project actions**: rename, archive/unarchive, copy Session ID / project ID, create a Session inside a project, and more actions.
+- **Archived**: show/hide archived Sessions with a count, so they never mix into the normal list.
+- **Pinned Sessions** sort first inside their group, following the target device's pinned order.
+- **Refresh**: force-reload the target device's project and Session tree.
+
+### 3. Remote Session settings (gear)
+
+Use the gear next to a remote Session title (or on the manager's Session row) to change, remotely:
+
+| Item | Notes |
 | --- | --- |
-| `link_status` | pairing/connection state and online devices |
-| `link_devices` | list other online computers |
-| `link_sessions` | list Sessions on a computer |
-| `link_read` | read the latest messages of a remote Session |
-| `link_create` | create a Session on a remote computer |
-| `link_prompt` | send a prompt and wait for the reply |
-| `link_cancel` | stop the current turn of a remote Session |
-| `link_debug` | diagnostics (Session list, title projections, speech providers, config) |
+| Session title | Rename the remote Session; the local mirror title follows |
+| Model | Pick provider/model from the remote `model.catalog` |
+| Reasoning effort | Options offered by the selected model |
+| Agent preset | The remote plugin / Agent preset (same list as DSH presets) |
+| Archive | Archive the remote Session and bring the mirror in line |
 
-## Voice pipeline
+> With an older plugin on the other side you get "The plugin on the other computer is too old. Update it there to use model and preset settings."
+
+### 4. Streaming output switch
+
+**Settings → Cross-device → Streaming output** controls how remote replies are displayed:
+
+- **On (default)**: replies stream token by token while the other computer generates them, in native mirror Sessions and in the plugin's own remote view.
+- **Off**: this computer stops requesting/forwarding transient assistant chunks; each reply appears once, after it is committed. Open Sessions re-subscribe immediately.
+- It is a **per-computer display preference**: it never changes other devices. Stored in this machine's `~/.dsh/dsh-link/config.json` under `streaming`, never written to the relay.
+
+### 5. Let the AI drive another computer
+
+Ask in any DSH Session ("what's on the travel laptop?", "let the home computer continue the tests") and the agent uses:
+
+| Tool | Parameters | Purpose |
+| --- | --- | --- |
+| `link_status` | — | This device, relay state, version, online devices |
+| `link_devices` | — | List other online computers |
+| `link_sessions` | `device` | List Sessions on one computer (running state, cwd) |
+| `link_read` | `device`, `session_id`, `max_messages`? | Read the latest messages of a remote Session (default 30, max 200) |
+| `link_create` | `device`, `cwd`? | Create a Session on a remote computer and return its id |
+| `link_prompt` | `device`, `session_id`, `text`, `wait_seconds`? | Prompt a remote Session, wait for the turn, return the newest assistant text (default 120 s, max 600 s) |
+| `link_cancel` | `device`, `session_id` | Stop the active turn of a remote Session |
+| `link_debug` | `what`, `session_id`?, `before_seq`?, `device`?, `title`? | Diagnostics: config, Session/title projections, workspaces, speech providers, mirror state, event streams |
+
+`device` accepts either a peer id (`dev_…`) or the display name.
+
+### 6. Android app
+
+- **Connection**: paste the same pairing code; drops are retried with exponential backoff 1 s, 2 s, 4 s … up to 30 s (±20% jitter).
+- **Computers**: switch targets from the pill list; the badge shows connecting/offline.
+- **Sessions**: `+` creates one (workspace and `cwd` optional), `⋮` renames it; opening a Session subscribes with `session.follow` and merges `session.history` by `seq`.
+- **Conversation**: user bubbles, DSH replies (collapsible reasoning), collapsible tool call/result cards with pretty-printed JSON args, turn separators and error cards. Sending can be **queue** or **steer**; a running turn can be stopped.
+- **Voice**: mic → record (16 kHz mono PCM16, up to 60 s, with timer, level bar and cancel) → finish → the target computer transcribes → text is appended to the composer for editing, retry or cancel.
+- **Foldables**: two panes at ≥ 720 dp or with a separating hinge; a vertical hinge splits left/right, a horizontal one stacks top/bottom, and the hinge area stays clear. Folding/rotating keeps the current device, Session and draft.
+- **Theme/language**: follows system dark/light; Chinese (default) and English.
+
+### 7. Voice path
 
 ```
 phone recording (16 kHz mono PCM16) → standard WAV → base64
       → relay → target computer's DSH Link → local speechToText / SenseVoice
-      → text → relay → phone input box (editable; never auto-sent)
+      → text → relay → phone composer (editable, never auto-sent)
 ```
 
-- Recognition always runs on the **target computer**; the phone does not download a model and audio is not sent to a cloud recognizer.
-- Only canonical 44-byte-header WAV is accepted (`data` immediately after `fmt `); the app ships a generator.
-- The first recognition loads the local model and may take a few seconds; pre-warm it in DSH Settings if desired.
+- Recognition runs on the **target computer**; the phone downloads no model and audio never reaches a third-party cloud.
+- Only standard 44-byte-header WAV is accepted (`fmt ` followed by `data`), decoded size ≤ 4 MiB.
+- The first recognition may load the local model (the Host prepares it for up to 120 s).
 
-## Foldables
+## Settings and data
 
-- Width ≥ 720dp: two panes (devices + Sessions on the left, conversation on the right); narrow: one pane with back.
-- `WindowInfoTracker` `FoldingFeature`: vertical hinge → side-by-side, horizontal hinge → stacked, with a gap that keeps content off the hinge.
-- Folding/unfolding/rotation preserves the selected device, Session and draft (ViewModel + rememberSaveable).
+**Settings → Cross-device** contains:
+
+- **Connection**: this device's name/ID, connection state, relay URL, plugin version;
+- **Streaming output**: the per-computer display preference described above;
+- **Pairing code**: paste/save the code, optional device name, disconnect and forget;
+- **This device's pairing code**: copy it for another computer or the phone;
+- **Online devices**: names, platforms and count of the other computers in the space;
+- **Speech recognition**: whether the local provider is available, its phase and provider list;
+- **Android pairing**: a hint to paste the same code in the app.
+
+Local files:
+
+| Path | Content | Mode |
+| --- | --- | --- |
+| `~/.dsh/dsh-link/config.json` | relay URL, device id/name, `streaming` and other non-secret config | 0600 |
+| DSH credential store `dsh-link/token` | space token (the secret) | credential store |
+| `~/.dsh/dsh-link/mirrors.json` | mirror map, archive direction, remote sequence | 0600 |
+| `~/.dsh/dsh-link/mirrors/<deviceId>/` | mirror directories used as local workspace paths | 0700 |
+| `~/.dsh/dsh-link/pairing.txt` | optional; auto-imported on first start and then deleted | 0600 |
+
+The plugin never edits the profile's `cordis.patch.yml`; the settings page talks to the Host through a same-origin HTTP API.
 
 ## Security
 
-- Only the relay's 8443/TLS is public; computers and phones connect outbound.
-- One space token grants everything. Rotate it and re-pair all devices if it leaks (see relay README).
-- The desktop token is stored in the DSH credential store (`dsh-link/token`) with a 0600 config; the phone keeps it in app-private storage; the relay logs no params/results.
-- Built for personal use: no multi-tenancy, roles, audit, or sharing.
+- The only public surface is the relay on 8443 (TLS); computers and the phone dial out and expose no inbound ports.
+- One space token is the whole permission set. If it leaks, rotate it and re-pair every device (see [relay/README.md](relay/README.md)).
+- The token lives in the DSH credential store (`dsh-link/token`); config is 0600; the phone keeps it in app-private storage; the relay logs no request/response bodies.
+- This is a personal tool: no multi-tenancy, roles, audit trail or sharing permissions.
 
-## Known limitations
+## Known limits
 
-- No offline queue: a remote call fails immediately when the target computer is offline.
-- Remote Sessions are **mirrors**: only the 10 most recent non-subagent Sessions per computer are synced; deleting a remote Session does not remove its local mirror automatically.
-- Remote tool calls/results reuse the native DSH tool cards (collapsed by default, expandable for arguments/results); attachments and approval prompts still happen on the target computer.
-- Mirror history synced before 1.1.0 keeps the old text form. Ask the local AI to run `link_debug what=rebuild-mirrors` to rebuild mirrors as native events (old mirrors are archived and the new ones re-pull remote history).
-- Native composer sends use a mirror gate: the local turn ends without a model request and the remote reply is appended afterwards. Avoid sending the next prompt before the previous reply arrives.
-- A cold/closed mirror is refreshed when opened; the Host pushes live updates only while the mirror conversation is open.
-- Long tool results and text are truncated to keep relay/mobile frames bounded; read the full content on the target computer.
-- The APK is a self-signed debug build; installing requires allowing unknown sources. Configure release signing for distribution.
-- Protocol v1 makes no cross-version compatibility promise; keep plugin, relay and app on the same version.
+- The relay keeps no offline queue: remote calls fail immediately when the target computer is not running DSH.
+- Remote Sessions are **mirrors**: each computer mirrors its 10 most recent non-subagent Sessions (running ones kept); deleting a Session remotely does not remove the local mirror workspace entry.
+- Mirrors reuse native DSH tool cards; attachments, approval prompts and the rest of the full DSH UI still require the target computer.
+- Mirrors created before 1.1.0 keep the old text-style history; run `link_debug what=rebuild-mirrors` to rebuild them (old mirrors are archived, new ones replay remote history).
+- Sending from the native composer uses "gate the local step, forward the prompt": the local turn ends blocked and the remote reply is appended afterwards; wait for a reply before sending again.
+- Long text is truncated to keep frames bounded: user/assistant text 8 KiB, reasoning 4 KiB, tool args 4 KiB, tool results 2 KiB. The full content stays on the target computer.
+- Protocol v1 makes no cross-version compatibility promise; keep plugin, relay and app on the same version (plugin 1.2.1 / protocol v1).
+- The APK is a self-signed debug build; installing requires allowing unknown sources, and publishing to an app store needs release signing.
 
-## Development
+## Troubleshooting
+
+See [docs/faq.md](docs/faq.md) for common questions, including:
+
+- no **Cross-device** entry after installing the plugin;
+- the settings page says **Connected** but no other computer appears;
+- the remote computer goes offline or the version does not change after updating the plugin (restart DSH or toggle the plugin off/on);
+- empty Session titles or an apparently empty remote workspace (`link_debug` first);
+- speech recognition fails or returns empty text (check the target's speech provider).
+
+## Development and verification
 
 ```bash
-# plugin host tests (plain Node)
+# Plugin Host half (pure Node tests, 29 cases)
 cd plugin && node --test test/
 
-# relay protocol suite against the public WSS endpoint
+# relay (protocol suite against the public WSS endpoint)
 cd relay && npm install && node test-client.mjs
 cd relay && node test-client.mjs --slow
 
@@ -218,12 +310,23 @@ cd relay && node test-client.mjs --slow
 cd android && ./gradlew :app:assembleDebug
 cd android && ./gradlew :app:testDebugUnitTest
 
-# development helpers: fake remote computer / probe client
+# Development helpers: a fake remote computer / a probe client
 node tools/fake-host.mjs --pairing-file ~/.dsh/dsh-link/pairing-code.txt --name "Fake laptop"
 node tools/probe-client.mjs --pairing-file ~/.dsh/dsh-link/pairing-code.txt --method device.info
 ```
 
-See [docs/architecture.md](docs/architecture.md), [docs/install.md](docs/install.md) and [docs/faq.md](docs/faq.md).
+Deeper design notes live in [docs/architecture.md](docs/architecture.md); installation and troubleshooting in [docs/install.md](docs/install.md) and [docs/faq.md](docs/faq.md); the wire contract in [protocol/PROTOCOL.md](protocol/PROTOCOL.md).
+
+## Versions and compatibility
+
+| Component | Version | Notes |
+| --- | --- | --- |
+| DSH Link plugin | 1.2.1 | Adds the streaming switch, the cross-device manager and remote Session settings (model/reasoning/preset/archive) |
+| Protocol | v1 | New fields are backwards compatible; new methods do not bump `v` |
+| Relay | 1.0.0 (protocol v1) | Node.js ≥ 20, single `ws` dependency |
+| Android app | 1.2.1 | minSdk 26 (Android 8.0+), protocol v1 |
+
+If the version does not change after updating the plugin, the Host half is still running the old module in memory: toggle dsh-link off/on in Settings → Plugins, or restart DSH.
 
 ## License
 
