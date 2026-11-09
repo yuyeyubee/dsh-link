@@ -809,6 +809,7 @@ class LinkHost {
     this.token = await this.readToken()
     this.mirrors = this.readMirrorStore()
     await this.migrateMirrors()
+    await this.repairMirrorSessions()
     await this.importPairingFile()
     if (this.isConfigured()) this.connectRelay()
     else this.setState('unconfigured')
@@ -1513,6 +1514,35 @@ class LinkHost {
     this.mirrorTimer.unref?.()
   }
 
+  /** Reattach known mirrors and archive local Sessions stranded in mirror dirs. */
+  async repairMirrorSessions() {
+    const registry = this.service('workspaceRegistry')
+    if (registry === undefined) return
+    for (const [deviceId, device] of Object.entries(this.mirrors.devices ?? {})) {
+      for (const [remoteSessionId, entry] of Object.entries(device.sessions ?? {})) {
+        if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string') continue
+        if (typeof entry.workspaceId !== 'string') continue
+        const mapping = device.workspaces?.[entry.workspaceId]
+        if (typeof mapping?.localWorkspaceId !== 'string') continue
+        const workspace = registry.get(mapping.localWorkspaceId)
+        if (workspace !== undefined) await workspace.attachSession(entry.localId).catch(() => {})
+      }
+    }
+    const root = join(dataDir(), 'mirrors')
+    let list
+    try {
+      list = await this.sessionList()
+    } catch {
+      return
+    }
+    for (const item of Array.isArray(list) ? list : []) {
+      if (item === null || typeof item !== 'object' || typeof item.sessionId !== 'string' || typeof item.cwd !== 'string') continue
+      if (!item.cwd.startsWith(`${root}${sep}`)) continue
+      if (this.mirrorForLocal(item.sessionId) !== undefined) continue
+      await registry.archiveSession(item.sessionId, { stopActivity: true }).catch(() => {})
+    }
+  }
+
   /** Delete projected Workspaces of peers that are no longer online. */
   async pruneOfflinePeerWorkspaces() {
     const online = new Set(this.peers.map((peer) => peer.id))
@@ -1887,18 +1917,90 @@ class LinkHost {
   handleMirrorPreStep(payload) {
     const localSessionId = payload?.agent?.id
     const found = this.mirrorForLocal(localSessionId)
-    if (found === undefined) return undefined
     const text = extractUserMessageText(payload?.messages)
-    if (text.length > 0) {
-      if (found.entry.lastForwardedTurn !== payload.turn) {
-        found.entry.lastForwardedTurn = payload.turn
-        this.appendMirrorUserText(found.entry, text)
-        void this.forwardMirrorPrompt(localSessionId, text).catch((error) => {
-          this.log('warn', `dsh-link: mirror forward failed: ${errorMessage(error)}`)
-        })
+    if (found !== undefined) {
+      if (text.length > 0) {
+        if (found.entry.lastForwardedTurn !== payload.turn) {
+          found.entry.lastForwardedTurn = payload.turn
+          this.appendMirrorUserText(found.entry, text)
+          void this.forwardMirrorPrompt(localSessionId, text).catch((error) => {
+            this.log('warn', `dsh-link: mirror forward failed: ${errorMessage(error)}`)
+          })
+        }
       }
+      return { kind: 'reject' }
+    }
+    // Native "new Session" inside a mirrored project creates an ordinary local
+    // Session. It must not run locally: bind it to a fresh remote Session first.
+    const session = this.service('sessions')?.get(localSessionId)
+    const cwd = session?.header?.cwd ?? session?.cwd ?? ''
+    if (!this.isMirrorPath(cwd)) return undefined
+    if (text.length > 0) {
+      void this.provisionUnmappedMirror(localSessionId, cwd, text, payload.turn).catch((error) => {
+        this.log('warn', `dsh-link: mirror bind failed: ${errorMessage(error)}`)
+      })
     }
     return { kind: 'reject' }
+  }
+
+  /** Bind a local Session created inside a mirror Workspace to a new remote Session. */
+  async provisionUnmappedMirror(localSessionId, cwd, text, turn) {
+    const root = join(dataDir(), 'mirrors')
+    if (!cwd.startsWith(`${root}${sep}`)) throw new LinkError('not-found', '不是远程工作区会话')
+    const parts = cwd.slice(root.length + 1).split(sep)
+    const deviceId = parts[0]
+    const directory = parts[1] ?? ''
+    const remoteWorkspaceId = directory.startsWith('ws-') ? directory.slice(3) : ''
+    const peer = this.resolvePeer(deviceId)
+    const created = await this.remoteCall(peer.id, 'session.create', remoteWorkspaceId.length > 0 ? { workspaceId: remoteWorkspaceId } : {}, 30_000)
+    const remoteSessionId = created !== null && typeof created === 'object' && typeof created.sessionId === 'string' ? created.sessionId : ''
+    if (remoteSessionId.length === 0) throw new LinkError('internal', '远程会话创建失败')
+    const session = this.service('sessions')?.get(localSessionId)
+    const titleService = this.service('sessionTitle')
+    const title = titleService !== undefined ? (titleService.get(session)?.title ?? '') : ''
+    const device = this.mirrors.devices[deviceId] ?? { name: peer.name ?? deviceId, workspaces: {}, sessions: {} }
+    device.name = peer.name ?? device.name ?? deviceId
+    device.workspaces = device.workspaces ?? {}
+    device.sessions = device.sessions ?? {}
+    const entry = {
+      localId: localSessionId,
+      title,
+      remoteSeq: -1,
+      updatedAt: Date.now(),
+      createdAt: new Date().toISOString(),
+      workspaceId: remoteWorkspaceId,
+      lastForwardedTurn: turn,
+    }
+    device.sessions[remoteSessionId] = entry
+    this.mirrors.devices[deviceId] = device
+    this.saveMirrorStore()
+    try {
+      const mapping = device.workspaces?.[remoteWorkspaceId]
+      const registry = this.service('workspaceRegistry')
+      const workspace = registry !== undefined && typeof mapping?.localWorkspaceId === 'string' ? registry.get(mapping.localWorkspaceId) : undefined
+      if (workspace !== undefined) await workspace.attachSession(localSessionId)
+    } catch {
+      // grouping is cosmetic; the mirror mapping still routes prompts
+    }
+    if (typeof text === 'string' && text.trim().length > 0) {
+      await this.remoteCall(peer.id, 'session.prompt', { sessionId: remoteSessionId, text }, 30_000)
+      // The local transcript already contains this user message. Skip the
+      // matching remote user record so the watch only appends the remote reply.
+      try {
+        const history = await this.remoteCall(peer.id, 'session.history', { sessionId: remoteSessionId, maxMessages: 20 }, 20_000)
+        const records = Array.isArray(history?.records) ? history.records : []
+        let userSeq = -1
+        for (const record of records) {
+          if (record?.kind === 'user' && typeof record.text === 'string' && record.text.trim() === text.trim()) userSeq = Number.isFinite(record.seq) ? record.seq : userSeq
+        }
+        if (userSeq >= 0) entry.remoteSeq = userSeq
+      } catch {
+        // the live watch will still stream the reply
+      }
+      this.saveMirrorStore()
+      this.watchMirror(localSessionId)
+    }
+    return { localSessionId, remoteSessionId }
   }
 
   /** Ensure one local Workspace exists for a mirror directory. */
@@ -3412,6 +3514,18 @@ export function apply(ctx) {
     const decision = host.handleMirrorPreStep(payload)
     return decision === undefined ? next() : decision
   }), 'dsh-link: mirror prompt gate')
+
+  // A native New Session created inside a mirrored project would otherwise be
+  // an ordinary local Session. Bind it to a blank remote Session immediately so
+  // its first prompt goes through the mirror gate.
+  ctx.effect(() => ctx.on('session/created', (session) => {
+    const cwd = session?.header?.cwd ?? ''
+    if (!host.isMirrorPath(cwd)) return
+    if (host.mirrorForLocal(session.id) !== undefined) return
+    void host.provisionUnmappedMirror(session.id, cwd, '', 0).catch((error) => {
+      host.log('warn', `dsh-link: bind mirror workspace session: ${errorMessage(error)}`)
+    })
+  }), 'dsh-link: bind mirror workspace sessions')
 
   // Optional Web carrier: headless compositions keep the tools but have no UI
   // route to serve.
