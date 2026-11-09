@@ -29,6 +29,8 @@ window.__ModuleLoader__.load({
     const STREAM_RETRY_MS = 1500
     /** Maximum number of live records kept in memory for one conversation. */
     const MAX_RECORDS = 400
+    /** Window event fired after the streaming preference is saved. */
+    const SETTINGS_EVENT = 'dsh-link:settings-changed'
 
     const LOCALE_DICTS = {
       en: {
@@ -153,6 +155,12 @@ window.__ModuleLoader__.load({
         'settings.forgotten': 'Pairing removed.',
         'settings.forgetFailed': 'Could not disconnect',
         'settings.connection': 'Connection',
+        'settings.streaming': 'Streaming output',
+        'settings.streamingHint': 'Show each remote assistant reply character by character while the other computer generates it. When off, every reply appears at once after it completes.',
+        'settings.streamingOn': 'On',
+        'settings.streamingOff': 'Off',
+        'settings.streamingFailed': 'Could not save the streaming preference',
+        'live.generating': 'Generating…',
         'settings.relay': 'Relay',
         'settings.peers': 'Online devices',
         'settings.noPeers': 'No other devices are online.',
@@ -371,6 +379,12 @@ window.__ModuleLoader__.load({
         'settings.forgotten': '已清除配对。',
         'settings.forgetFailed': '断开失败',
         'settings.connection': '连接状态',
+        'settings.streaming': '流式输出',
+        'settings.streamingHint': '远程电脑生成回复时逐字显示。关闭后，每条回复会在生成完成后整段出现。',
+        'settings.streamingOn': '已开启',
+        'settings.streamingOff': '已关闭',
+        'settings.streamingFailed': '保存流式输出设置失败',
+        'live.generating': '正在生成…',
         'settings.relay': '中转服务器',
         'settings.peers': '在线设备',
         'settings.noPeers': '暂无其他在线设备。',
@@ -619,6 +633,18 @@ window.__ModuleLoader__.load({
       .dsh-link-card { display: flex; flex-direction: column; gap: 10px; padding: 13px 15px; border: .5px solid var(--dsw-alias-border-l3); border-radius: 12px; background: var(--dsw-alias-bg-layer-1); min-width: 0; }
       .dsh-link-card.is-danger { border-color: var(--dsw-alias-state-error-primary); }
       .dsh-link-card-title { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 13px; font-weight: 600; line-height: 1.4; }
+      .dsh-link-switch { display: inline-flex; align-items: center; gap: 9px; align-self: flex-start; cursor: pointer; user-select: none; }
+      .dsh-link-switch.is-disabled { cursor: default; opacity: .6; }
+      .dsh-link-switch input { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+      .dsh-link-switch-track { position: relative; flex: none; width: 36px; height: 20px; border-radius: 999px; border: .5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-2); transition: background .16s ease, border-color .16s ease; }
+      .dsh-link-switch-thumb { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--dsw-alias-label-primary); opacity: .65; transition: transform .16s ease, background .16s ease, opacity .16s ease; }
+      .dsh-link-switch.is-on .dsh-link-switch-track { border-color: var(--dsw-alias-state-business-primary); background: var(--dsw-alias-state-business-primary); }
+      .dsh-link-switch.is-on .dsh-link-switch-thumb { transform: translateX(16px); background: #fff; opacity: 1; }
+      .dsh-link-switch:focus-within .dsh-link-switch-track { outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 2px; }
+      .dsh-link-switch-label { font-size: 12.5px; font-weight: 500; color: var(--dsw-alias-label-primary); }
+      .dsh-link-live-status { display: flex; align-items: center; gap: 5px; padding-left: 2px; font-size: 11px; line-height: 1.4; color: var(--dsw-alias-label-tertiary); }
+      .dsh-link-caret { display: inline-block; width: 2px; height: 13px; margin-left: 2px; border-radius: 1px; background: var(--dsw-alias-state-business-primary); vertical-align: -2px; animation: dsh-link-caret-blink 1s steps(2, start) infinite; }
+      @keyframes dsh-link-caret-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
       .dsh-link-rows { display: flex; flex-direction: column; margin: 0; }
       .dsh-link-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 6px 0; border-bottom: .5px solid var(--dsw-alias-border-l3); font-size: 12.5px; line-height: 1.55; }
       .dsh-link-row:last-child { border-bottom: 0; }
@@ -866,6 +892,10 @@ window.__ModuleLoader__.load({
       },
       async forget() {
         const payload = await postOperation({ op: 'forget' })
+        return payload.status
+      },
+      async settings(streaming) {
+        const payload = await postOperation({ op: 'settings', streaming })
         return payload.status
       },
       async sessions(deviceId) {
@@ -1404,6 +1434,73 @@ window.__ModuleLoader__.load({
       return matches
     }
 
+    /** Append one transient delta chunk to a live assistant draft. */
+    function liveChunkText(live, chunk) {
+      if (chunk === null || typeof chunk !== 'object') return live
+      if (chunk.type === 'text-delta' && typeof chunk.text === 'string') {
+        return { ...live, text: live.text + chunk.text }
+      }
+      if (chunk.type === 'reasoning-delta' && typeof chunk.text === 'string') {
+        return { ...live, reasoning: live.reasoning + chunk.text }
+      }
+      return live
+    }
+
+    /**
+     * Fold one `assistant-stream` frame into the live draft. A `null` result
+     * means the transient content must be dropped: abandoned attempts are
+     * discarded, while committed ones stay until the durable record lands.
+     */
+    function applyLiveFrame(live, frame) {
+      if (frame === null || typeof frame !== 'object') return live
+      if (frame.type === 'start') {
+        return {
+          attemptId: typeof frame.attemptId === 'string' ? frame.attemptId : '',
+          revision: Number.isFinite(frame.revision) ? frame.revision : 0,
+          text: '',
+          reasoning: '',
+        }
+      }
+      if (live === null || typeof live !== 'object') return live
+      const sameAttempt = typeof frame.attemptId !== 'string' || live.attemptId === '' || live.attemptId === frame.attemptId
+      if (!sameAttempt) return live
+      if (frame.type === 'chunk') {
+        if (Number.isFinite(frame.revision) && Number.isFinite(live.revision) && frame.revision <= live.revision) return live
+        const next = liveChunkText(live, frame.chunk)
+        if (next === live) return live
+        return { ...next, revision: Number.isFinite(frame.revision) ? frame.revision : live.revision }
+      }
+      if (frame.type === 'end') {
+        const outcome = frame.outcome
+        if (outcome !== null && typeof outcome === 'object' && outcome.kind === 'abandoned') return null
+        return live
+      }
+      return live
+    }
+
+    /** Rebuild the live draft from the `assistantStream` baseline of a snapshot. */
+    function liveFromBaseline(baseline) {
+      if (baseline === null || typeof baseline !== 'object') return null
+      const attempt = baseline.activeAttempt
+      if (attempt === null || typeof attempt !== 'object' || typeof attempt.attemptId !== 'string' || attempt.attemptId === '') return null
+      let live = { attemptId: attempt.attemptId, revision: 0, text: '', reasoning: '' }
+      const members = Array.isArray(attempt.stream) ? attempt.stream : []
+      const limit = Number.isFinite(attempt.nextIndex) ? Math.min(attempt.nextIndex, members.length) : members.length
+      for (let index = 0; index < limit; index += 1) {
+        const member = members[index]
+        if (member === null || typeof member !== 'object') continue
+        live = liveChunkText(live, member.chunk)
+      }
+      live.revision = Number.isFinite(baseline.revision) ? baseline.revision : live.revision
+      return live
+    }
+
+    /** Whether a live draft has anything worth rendering yet. */
+    function liveHasContent(live) {
+      return live !== null && typeof live === 'object'
+        && ((typeof live.text === 'string' && live.text !== '') || (typeof live.reasoning === 'string' && live.reasoning.trim() !== ''))
+    }
+
     /**
      * Subscribe to one remote session stream.
      *
@@ -1414,11 +1511,11 @@ window.__ModuleLoader__.load({
      * into a dead component.
      */
     function useFollowStream(t, deviceId, sessionId) {
-      const [view, setView] = React.useState({ records: [], title: '', state: null, phase: 'idle', error: '' })
+      const [view, setView] = React.useState({ records: [], live: null, title: '', state: null, phase: 'idle', error: '' })
       const restartRef = React.useRef(null)
 
       React.useEffect(() => {
-        const empty = { records: [], title: '', state: null, phase: 'idle', error: '' }
+        const empty = { records: [], live: null, title: '', state: null, phase: 'idle', error: '' }
         if (typeof deviceId !== 'string' || deviceId === '' || typeof sessionId !== 'string' || sessionId === '') {
           setView(empty)
           return undefined
@@ -1434,7 +1531,7 @@ window.__ModuleLoader__.load({
         let sawEnd = false
         let sawError = false
 
-        setView({ records: [], title: '', state: null, phase: 'connecting', error: '' })
+        setView({ records: [], live: null, title: '', state: null, phase: 'connecting', error: '' })
 
         const patch = (value) => {
           if (!disposed) setView((previous) => ({ ...previous, ...value }))
@@ -1451,10 +1548,12 @@ window.__ModuleLoader__.load({
           if (type === 'snapshot') {
             const records = Array.isArray(frame.records) ? frame.records.filter(isChatRecord) : []
             const state = normalizeState(frame.state)
+            const live = liveFromBaseline(frame.assistantStream)
             if (disposed) return
             setView((previous) => ({
               ...previous,
               records,
+              live,
               state: state === null ? previous.state : state,
               phase: 'connected',
               error: '',
@@ -1467,12 +1566,25 @@ window.__ModuleLoader__.load({
             if (disposed) return
             setView((previous) => {
               const key = recordKey(record)
-              if (key !== '' && previous.records.some((item) => recordKey(item) === key)) return previous
+              // A durable assistant message supersedes its transient draft.
+              const live = record.kind === 'assistant' ? null : previous.live
+              if (key !== '' && previous.records.some((item) => recordKey(item) === key)) {
+                return live === previous.live ? previous : { ...previous, live }
+              }
               const records = previous.records.length >= MAX_RECORDS
                 ? previous.records.slice(previous.records.length - MAX_RECORDS + 1)
                 : previous.records.slice()
               records.push(record)
-              return { ...previous, records }
+              return { ...previous, records, live }
+            })
+            return
+          }
+          if (type === 'assistant-stream') {
+            const frameData = frame.frame
+            if (frameData === null || typeof frameData !== 'object') return
+            setView((previous) => {
+              const live = applyLiveFrame(previous.live, frameData)
+              return live === previous.live ? previous : { ...previous, live }
             })
             return
           }
@@ -1640,7 +1752,14 @@ window.__ModuleLoader__.load({
           }, 60)
         }
 
+        const onSettingsChanged = () => {
+          if (disposed) return
+          setView((previous) => ({ ...previous, live: null }))
+          restartRef.current?.()
+        }
+
         document.addEventListener('visibilitychange', onVisibility)
+        window.addEventListener(SETTINGS_EVENT, onSettingsChanged)
         void run()
 
         return () => {
@@ -1653,6 +1772,7 @@ window.__ModuleLoader__.load({
             abort = null
           }
           document.removeEventListener('visibilitychange', onVisibility)
+          window.removeEventListener(SETTINGS_EVENT, onSettingsChanged)
         }
       }, [deviceId, sessionId, t])
 
@@ -1662,6 +1782,7 @@ window.__ModuleLoader__.load({
 
       return {
         records: view.records,
+        live: view.live,
         title: view.title,
         state: view.state,
         phase: view.phase,
@@ -1753,6 +1874,32 @@ window.__ModuleLoader__.load({
       return null
     }
 
+    /** Transient assistant draft that is still being generated remotely. */
+    function LiveAssistantView({ live, t }) {
+      const parts = []
+      if (typeof live.reasoning === 'string' && live.reasoning.trim() !== '') {
+        parts.push(h('details', { className: 'dsh-link-details', key: 'reasoning', open: true },
+          h('summary', null, h('span', { className: 'dsh-link-details-title' }, t('reasoning'))),
+          h('pre', { className: 'dsh-link-pre' }, live.reasoning),
+        ))
+      }
+      if (typeof live.text === 'string' && live.text !== '') {
+        parts.push(h('div', { className: 'dsh-link-bubble', key: 'text' },
+          h('div', { className: 'dsh-link-text' }, live.text, h('span', { className: 'dsh-link-caret', 'aria-hidden': 'true' })),
+        ))
+      }
+      return h('div', { className: 'dsh-link-msg is-wide' },
+        h('div', { className: 'dsh-link-msg-main' },
+          h('div', { className: 'dsh-link-role' }, t('role.assistant')),
+          ...parts,
+          h('div', { className: 'dsh-link-live-status', role: 'status' },
+            h('span', { className: 'dsh-link-dot is-ok is-pulse' }),
+            t('live.generating'),
+          ),
+        ),
+      )
+    }
+
     /* --------------------------------------------------------------------- */
     /* Remote conversation                                                    */
     /* --------------------------------------------------------------------- */
@@ -1785,13 +1932,14 @@ window.__ModuleLoader__.load({
       }, [device.id, session.sessionId])
 
       const records = stream.records
+      const live = liveHasContent(stream.live) ? stream.live : null
       const running = stream.state !== null && stream.state.running === true
       const displayTitle = titleOverride !== '' ? titleOverride : (stream.title !== '' ? stream.title : (typeof session.title === 'string' && session.title !== '' ? session.title : t('untitled')))
 
       React.useLayoutEffect(() => {
         const element = listRef.current
         if (element !== null && stickRef.current) element.scrollTop = element.scrollHeight
-      }, [records, stream.state, stream.phase])
+      }, [records, live, stream.state, stream.phase])
 
       const onScroll = () => {
         const element = listRef.current
@@ -1933,7 +2081,7 @@ window.__ModuleLoader__.load({
           ? h('div', { className: 'dsh-link-banner is-error', role: 'alert' }, actionError)
           : null,
         h('div', { className: 'dsh-link-messages', ref: listRef, onScroll, role: 'log', 'aria-label': displayTitle },
-          records.length === 0
+          records.length === 0 && live === null
             ? h('div', { className: 'dsh-link-empty' },
                 h('div', { className: 'dsh-link-empty-icon' }, h(DeviceGlyph, { size: 34 })),
                 h('h3', { className: 'dsh-link-empty-title' }, stream.phase === 'connecting' || stream.phase === 'retrying' ? t('stream.connecting') : t('emptyConversation.title')),
@@ -1944,6 +2092,7 @@ window.__ModuleLoader__.load({
                 record,
                 t,
               })),
+          live !== null ? h(LiveAssistantView, { key: 'live', live, t }) : null,
         ),
         h('div', { className: 'dsh-link-composer' },
           h('div', { className: 'dsh-link-composer-box' },
@@ -2504,6 +2653,7 @@ window.__ModuleLoader__.load({
       const [pairingCode, setPairingCode] = React.useState('')
       const [deviceName, setDeviceName] = React.useState('')
       const [saving, setSaving] = React.useState(false)
+      const [savingStreaming, setSavingStreaming] = React.useState(false)
       const [forgetting, setForgetting] = React.useState(false)
       const [confirmForget, setConfirmForget] = React.useState(false)
       const [copied, setCopied] = React.useState(false)
@@ -2645,11 +2795,37 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const toggleStreaming = async (enabled) => {
+        if (savingStreaming) return
+        setSavingStreaming(true)
+        setError('')
+        setNotice('')
+        try {
+          const next = await api.settings(enabled)
+          if (!aliveRef.current) return
+          setStatus(next)
+          setPhase('ready')
+          try {
+            window.dispatchEvent(new CustomEvent(SETTINGS_EVENT, { detail: next.settings ?? null }))
+          } catch {
+            // older browsers refresh open streams on remount
+          }
+          if (typeof onChanged === 'function') onChanged()
+        } catch (failure) {
+          if (aliveRef.current) setError(`${t('settings.streamingFailed')}: ${errorText(failure)}`)
+        } finally {
+          if (aliveRef.current) setSavingStreaming(false)
+        }
+      }
+
       const connection = status !== null && status.connection !== null && typeof status.connection === 'object' ? status.connection : {}
       const device = status !== null && status.device !== null && typeof status.device === 'object' ? status.device : null
       const peers = status !== null && Array.isArray(status.peers) ? status.peers.filter((peer) => peer !== null && typeof peer === 'object') : []
       const speech = status !== null && status.speech !== null && typeof status.speech === 'object' ? status.speech : null
       const code = status !== null && typeof status.pairingCode === 'string' ? status.pairingCode : ''
+      const streaming = status === null || status.settings === undefined || status.settings === null
+        ? true
+        : status.settings.streaming !== false
 
       const rows = [
         device !== null
@@ -2709,6 +2885,23 @@ window.__ModuleLoader__.load({
               h('h3', { className: 'dsh-link-card-title' }, t('settings.connection')),
               h('div', { className: 'dsh-link-rows' }, ...rows),
               status.configured === false ? h('p', { className: 'dsh-link-hint' }, t('settings.unconfigured')) : null,
+            )
+          : null,
+        status !== null
+          ? h('div', { className: 'dsh-link-card' },
+              h('h3', { className: 'dsh-link-card-title' }, t('settings.streaming')),
+              h('p', { className: 'dsh-link-field-hint' }, t('settings.streamingHint')),
+              h('label', { className: cls('dsh-link-switch', streaming ? 'is-on' : '', savingStreaming ? 'is-disabled' : '') },
+                h('input', {
+                  type: 'checkbox',
+                  checked: streaming,
+                  disabled: savingStreaming,
+                  'aria-label': t('settings.streaming'),
+                  onChange: (event) => void toggleStreaming(event.target.checked),
+                }),
+                h('span', { className: 'dsh-link-switch-track', 'aria-hidden': 'true' }, h('span', { className: 'dsh-link-switch-thumb' })),
+                h('span', { className: 'dsh-link-switch-label' }, t(streaming ? 'settings.streamingOn' : 'settings.streamingOff')),
+              ),
             )
           : null,
         h('div', { className: 'dsh-link-card' },

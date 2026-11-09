@@ -34,7 +34,7 @@ export const name = 'dsh-link'
 export const inject = ['tools', 'systemPrompt', 'credentials']
 
 /** Version reported to peers and the Web UI. */
-const VERSION = '1.1.1'
+const VERSION = '1.2.0'
 /** On-disk config document version. */
 const CONFIG_VERSION = 1
 /** Same-origin API route used by the Client half. */
@@ -769,6 +769,7 @@ class LinkHost {
           : defaultDeviceName(),
         relayUrl: typeof parsed.relayUrl === 'string' ? parsed.relayUrl : '',
         language: typeof parsed.language === 'string' ? parsed.language : '',
+        streaming: parsed.streaming !== false,
         createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : new Date().toISOString(),
         updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : new Date().toISOString(),
       }
@@ -852,6 +853,7 @@ class LinkHost {
         deviceName: defaultDeviceName(),
         relayUrl: '',
         language: '',
+        streaming: true,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }
@@ -1001,7 +1003,68 @@ class LinkHost {
       })),
       speech: this.speechStatus(),
       mirrors: this.mirrorList(),
+      settings: this.settingsView(),
       version: VERSION,
+    }
+  }
+
+  /** User-facing display preferences stored next to the pairing config. */
+  settingsView() {
+    return { streaming: this.streamingEnabled() }
+  }
+
+  /** Whether live assistant streaming is enabled for remote replies. */
+  streamingEnabled() {
+    return this.config === undefined || this.config.streaming !== false
+  }
+
+  /** Apply one settings patch from the settings page and persist it. */
+  async updateSettings(patch) {
+    const base = this.config ?? {
+      version: CONFIG_VERSION,
+      deviceId: newDeviceId(),
+      deviceName: defaultDeviceName(),
+      relayUrl: '',
+      language: '',
+      streaming: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    const next = { ...base, updatedAt: new Date().toISOString() }
+    if (patch !== null && typeof patch === 'object' && typeof patch.streaming === 'boolean') {
+      next.streaming = patch.streaming
+    }
+    const changed = this.streamingEnabled() !== (next.streaming !== false)
+    this.writeConfig(next)
+    this.config = next
+    if (changed) this.restartMirrorWatches()
+    return this.status()
+  }
+
+  /**
+   * Re-subscribe every open mirror watch so a streaming change applies
+   * immediately; turning streaming off also drops any transient draft.
+   */
+  restartMirrorWatches() {
+    if (!this.streamingEnabled()) this.abortMirrorStreams()
+    const watched = [...this.mirrorWatches.keys()]
+    for (const localSessionId of watched) {
+      this.unwatchMirror(localSessionId)
+      this.watchMirror(localSessionId)
+    }
+  }
+
+  /** Finish every live mirror attempt so the UI drops its transient draft. */
+  abortMirrorStreams() {
+    for (const device of Object.values(this.mirrors.devices ?? {})) {
+      for (const entry of Object.values(device?.sessions ?? {})) {
+        const stream = entry?.mirrorStream
+        if (stream === null || typeof stream !== 'object' || stream.started !== true) continue
+        if (typeof stream.attemptId !== 'string' || stream.attemptId.length === 0) continue
+        const session = this.service('sessions')?.get(entry.localId)
+        if (session === undefined) continue
+        this.publishMirrorAssistantEnd(entry, session, { attemptId: stream.attemptId, outcome: { kind: 'abandoned' } })
+      }
     }
   }
 
@@ -1031,6 +1094,7 @@ class LinkHost {
       deviceName: defaultDeviceName(),
       relayUrl: '',
       language: '',
+      streaming: true,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
@@ -1250,12 +1314,13 @@ class LinkHost {
   }
 
   /** Async iterator for one followed session. */
-  async *followSession(sessionId, signal) {
+  async *followSession(sessionId, signal, options = {}) {
     const service = this.requireSessions()
+    const withStream = options === null || typeof options !== 'object' || options.assistantStream !== false
     const request = {
       address: { kind: 'session', sessionId },
       activate: false,
-      assistantStream: true,
+      assistantStream: withStream,
       maxMessages: FOLLOW_MAX_MESSAGES,
       turnWindow: { minMessages: 12, minTurns: 2 },
     }
@@ -1283,14 +1348,14 @@ class LinkHost {
           records,
           cursor: Number.isFinite(frame.cursor) ? frame.cursor : -1,
           state,
-          ...(frame.assistantStream !== null && typeof frame.assistantStream === 'object' ? { assistantStream: frame.assistantStream } : {}),
+          ...(withStream && frame.assistantStream !== null && typeof frame.assistantStream === 'object' ? { assistantStream: frame.assistantStream } : {}),
         }
         if (title.length > 0) yield { t: 'title', title }
         snapshotSent = true
         continue
       }
       if (frame.type === 'assistant-stream') {
-        yield { t: 'assistant-stream', frame: frame.frame }
+        if (withStream) yield { t: 'assistant-stream', frame: frame.frame }
         continue
       }
       if (frame.type !== 'event') continue
@@ -1989,6 +2054,7 @@ class LinkHost {
 
   /** Begin one live assistant attempt on the local mirror Session. */
   publishMirrorAssistantStart(entry, session, attempt) {
+    if (!this.streamingEnabled()) return
     const stream = this.mirrorStream(entry)
     const cursor = this.mirrorCursor(entry)
     const coordinates = this.ensureMirrorStep(session, cursor, attempt.turn, attempt.step)
@@ -2009,6 +2075,7 @@ class LinkHost {
 
   /** Publish one transient chunk of the active mirror attempt. */
   publishMirrorAssistantChunk(entry, session, frame) {
+    if (!this.streamingEnabled()) return
     const stream = this.mirrorStream(entry)
     if (stream.started !== true || stream.attemptId !== frame.attemptId) return
     stream.revision += 1
@@ -2052,7 +2119,7 @@ class LinkHost {
 
   /** Replay the opening assistant-stream baseline of one remote follow. */
   publishMirrorAssistantBaseline(entry, session, baseline) {
-    if (baseline === null || typeof baseline !== 'object') return
+    if (!this.streamingEnabled() || baseline === null || typeof baseline !== 'object') return
     const stream = this.mirrorStream(entry)
     stream.started = false
     stream.attemptId = undefined
@@ -2082,7 +2149,8 @@ class LinkHost {
     void this.syncMirrorHistory({ id: deviceId, name: device.name }, entry, remoteSessionId).catch(() => {})
     let subscription
     try {
-      subscription = this.remoteSubscribe(deviceId, 'session.follow', { sessionId: remoteSessionId }, {
+      const streaming = this.streamingEnabled()
+      subscription = this.remoteSubscribe(deviceId, 'session.follow', { sessionId: remoteSessionId, assistantStream: streaming }, {
         onEvent: (data) => {
           if (data === null || typeof data !== 'object') return
           if (data.t === 'snapshot') {
@@ -2094,7 +2162,7 @@ class LinkHost {
               this.saveMirrorStore()
             }
             const session = this.service('sessions')?.get(localSessionId)
-            if (session !== undefined) this.publishMirrorAssistantBaseline(entry, session, data.assistantStream)
+            if (session !== undefined && this.streamingEnabled()) this.publishMirrorAssistantBaseline(entry, session, data.assistantStream)
           } else if (data.t === 'record' && data.record !== null && typeof data.record === 'object') {
             if (Number.isFinite(data.record.seq) && data.record.seq > (entry.remoteSeq ?? -1)) {
               const appended = this.appendMirrorRecords(entry, [data.record])
@@ -2106,9 +2174,9 @@ class LinkHost {
           } else if (data.t === 'assistant-stream' && data.frame !== null && typeof data.frame === 'object') {
             const session = this.service('sessions')?.get(localSessionId)
             if (session === undefined) return
-            if (data.frame.type === 'start') this.publishMirrorAssistantStart(entry, session, data.frame)
-            else if (data.frame.type === 'chunk') this.publishMirrorAssistantChunk(entry, session, data.frame)
-            else if (data.frame.type === 'end') this.publishMirrorAssistantEnd(entry, session, data.frame)
+            if (data.frame.type === 'end') this.publishMirrorAssistantEnd(entry, session, data.frame)
+            else if (this.streamingEnabled() && data.frame.type === 'start') this.publishMirrorAssistantStart(entry, session, data.frame)
+            else if (this.streamingEnabled() && data.frame.type === 'chunk') this.publishMirrorAssistantChunk(entry, session, data.frame)
           } else if (data.t === 'title' && typeof data.title === 'string' && data.title.length > 0) {
             const session = this.service('sessions')?.get(localSessionId)
             if (session !== undefined) void this.renameMirror(session, entry, data.title)
@@ -3044,11 +3112,12 @@ class LinkHost {
       relay.send({ t: 'reply', rid, ok: false, error: toProtocolError(error) })
       return
     }
+    const assistantStream = params?.assistantStream !== false
     const abort = new AbortController()
     this.localStreams.set(rid, abort)
     relay.send({ t: 'reply', rid, ok: true, result: { stream: true } })
     try {
-      for await (const frame of this.followSession(sessionId, abort.signal)) {
+      for await (const frame of this.followSession(sessionId, abort.signal, { assistantStream })) {
         if (abort.signal.aborted) break
         relay.send({ t: 'event', rid, data: frame })
       }
@@ -3616,6 +3685,12 @@ async function handleApiRoute(request, host) {
     switch (body.op) {
       case 'status':
         return jsonResponse(200, { ok: true, status: await host.status() })
+      case 'settings': {
+        if (body.streaming !== undefined && typeof body.streaming !== 'boolean') {
+          return jsonResponse(400, { ok: false, error: 'streaming 必须是布尔值' })
+        }
+        return jsonResponse(200, { ok: true, status: await host.updateSettings({ streaming: body.streaming }) })
+      }
       case 'save': {
         if (typeof body.pairingCode !== 'string') return jsonResponse(400, { ok: false, error: '缺少配对码' })
         return jsonResponse(200, { ok: true, status: await host.savePairing(body.pairingCode, body.deviceName) })
@@ -3861,9 +3936,24 @@ async function handleStreamRoute(request, host) {
       })
       try {
         const peer = host.resolvePeer(body.deviceId)
-        subscription = host.remoteSubscribe(peer.id, 'session.follow', { sessionId: body.sessionId }, {
+        subscription = host.remoteSubscribe(peer.id, 'session.follow', {
+          sessionId: body.sessionId,
+          assistantStream: host.streamingEnabled(),
+        }, {
           onEvent: (data) => {
-            if (data !== null && typeof data === 'object') write({ type: data.t ?? 'frame', ...data })
+            if (data === null || typeof data !== 'object') return
+            // Check per frame so toggling the preference applies to an open
+            // transcript immediately; the subscription is reopened by the
+            // Client half when streaming is switched back on.
+            if (!host.streamingEnabled()) {
+              if (data.t === 'assistant-stream') return
+              if (data.t === 'snapshot' && data.assistantStream !== undefined) {
+                const { assistantStream: _ignored, ...rest } = data
+                write({ type: 'snapshot', ...rest })
+                return
+              }
+            }
+            write({ type: data.t ?? 'frame', ...data })
           },
           onError: (error) => {
             const protocolError = toProtocolError(error)

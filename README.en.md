@@ -14,7 +14,7 @@
 
 - **Multi-computer link**: install the same DSH plugin on each computer and paste one pairing code. Traffic goes through your own relay over the public internet; no public IP, port forwarding, NAT traversal, or VPN is required on the computers.
 - **Remote Sessions in the DSH sidebar**: each remote project becomes a `[Remote] <project> · <device>` group under **Workspaces**; its Session rows carry a **Remote** badge and open in the **native DSH conversation**, not a plugin page.
-- **Native remote conversation**: remote messages, tool calls/results and turn state render in the normal chat, with the same collapsed-by-default tool cards and token-by-token streaming as a local turn. Typing into the native composer forwards the prompt to the remote DSH; the local model is gated off.
+- **Native remote conversation**: remote messages, tool calls/results and turn state render in the normal chat, with the same collapsed-by-default tool cards and token-by-token streaming as a local turn (the **Streaming output** switch in Settings → Link can turn the token-by-token display off). Typing into the native composer forwards the prompt to the remote DSH; the local model is gated off.
 - **The local agent can drive another computer**: `link_sessions` / `link_read` / `link_prompt` / `link_create` / `link_cancel` tools let the AI on computer A operate DSH on computer B.
 - **Android app**: one app connects to multiple computers, browses and drives Sessions, supports dark/light themes and **foldables** (e.g. Huawei Mate X7) with a hinge-aware two-pane layout.
 - **Voice input round-trip**: record on the phone → send to the selected computer → its local SenseVoice recognizer → **text returns to the phone's editable input box**. Audio is never sent to a cloud recognizer.
@@ -110,6 +110,8 @@ After installation, refresh the DSH page (the desktop app usually applies it thr
 4. Click **Save pairing code**.
 
 The page then shows **Connected** and the other online computers. Repeat on every computer.
+
+The **Streaming output** switch on the settings page controls how remote replies are shown: when on (the default) they stream character by character while the other computer generates them; when off each reply appears at once after it completes. It applies to both native mirror sessions and the plugin's own remote conversation view.
 
 > The same pairing code is used by the phone. It contains the space token; treat it like a password.
 >
