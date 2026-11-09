@@ -60,6 +60,8 @@ const MAX_TOOL_TEXT = 2 * 1024
 const MAX_REASONING = 4 * 1024
 /** How many recent remote Sessions are mirrored into one device workspace. */
 const MAX_MIRROR_SESSIONS = 10
+/** Mirror mapping format; v2 groups remote projects as separate workspaces. */
+const MIRROR_STORE_VERSION = 2
 /** How often peers are re-listed while connected, in milliseconds. */
 const MIRROR_SYNC_INTERVAL_MS = 60_000
 /** Reconnect backoff bounds, in milliseconds. */
@@ -330,6 +332,8 @@ export function mapSessionSummary(item) {
       }
     }
   }
+  const projectionValues = item.projections?.values !== null && typeof item.projections?.values === 'object' ? item.projections.values : {}
+  const modelSelection = projectionValues.modelSelection?.next ?? projectionValues.modelSelection?.lastUsed ?? null
   return {
     sessionId,
     title: truncate(title, 200),
@@ -340,6 +344,8 @@ export function mapSessionSummary(item) {
     agentAvailable: item.agentAvailable !== false,
     blank: item.blank === true,
     parentSessionId: typeof item.parentSessionId === 'string' ? item.parentSessionId : null,
+    modelSelection: modelSelection !== null && typeof modelSelection === 'object' ? modelSelection : null,
+    agentPreset: typeof projectionValues.agentPreset === 'string' ? projectionValues.agentPreset : null,
   }
 }
 
@@ -797,6 +803,7 @@ class LinkHost {
     this.config = this.readConfig()
     this.token = await this.readToken()
     this.mirrors = this.readMirrorStore()
+    await this.migrateMirrors()
     await this.importPairingFile()
     if (this.isConfigured()) this.connectRelay()
     else this.setState('unconfigured')
@@ -1409,12 +1416,43 @@ class LinkHost {
     try {
       const parsed = JSON.parse(readFileSync(this.mirrorStoreFile(), 'utf8'))
       if (parsed === null || typeof parsed !== 'object' || typeof parsed.devices !== 'object' || parsed.devices === null) {
-        return { version: 1, devices: {} }
+        return { version: MIRROR_STORE_VERSION, devices: {} }
       }
-      return { version: 1, devices: parsed.devices }
+      return { version: Number.isFinite(parsed.version) ? parsed.version : 1, devices: parsed.devices }
     } catch {
-      return { version: 1, devices: {} }
+      return { version: MIRROR_STORE_VERSION, devices: {} }
     }
+  }
+
+  /** Upgrade the v1 device-level mirror layout to v2 project-level workspaces. */
+  async migrateMirrors() {
+    if ((this.mirrors.version ?? 1) >= MIRROR_STORE_VERSION) return
+    const registry = this.service('workspaceRegistry')
+    for (const device of Object.values(this.mirrors.devices ?? {})) {
+      for (const entry of Object.values(device.sessions ?? {})) {
+        if (registry !== undefined && typeof entry.localId === 'string') {
+          try {
+            await registry.archiveSession(entry.localId, { stopActivity: true })
+          } catch {
+            // already archived or gone
+          }
+        }
+      }
+      if (registry !== undefined && typeof device.workspaceId === 'string') {
+        try {
+          await registry.delete(device.workspaceId)
+        } catch {
+          // already gone
+        }
+      }
+      device.workspaces = {}
+      device.sessions = {}
+      delete device.workspaceId
+      delete device.workspacePath
+    }
+    this.mirrors.version = MIRROR_STORE_VERSION
+    this.saveMirrorStore()
+    this.log('info', 'dsh-link: upgraded mirror layout to per-project workspaces')
   }
 
   /** Atomically persist the mirror mapping with mode 0600. */
@@ -1483,90 +1521,6 @@ class LinkHost {
       this.saveMirrorStore()
     } finally {
       this.mirrorSyncing = false
-    }
-  }
-
-  /** Ensure the workspace that groups one device's mirrors exists. */
-  async ensureMirrorWorkspace(peer, name) {
-    const directory = this.mirrorDirFor(peer.id)
-    mkdirSync(directory, { recursive: true, mode: 0o700 })
-    const registry = this.service('workspaceRegistry')
-    if (registry === undefined) return undefined
-    let workspace
-    try {
-      workspace = await registry.resolveByPath(directory)
-    } catch {
-      workspace = undefined
-    }
-    const title = `[远程] ${name}`
-    if (workspace === undefined) {
-      workspace = await registry.create(directory, title)
-    } else if (workspace.title !== title) {
-      try {
-        await workspace.setTitle(title)
-      } catch {
-        // a title refresh is cosmetic
-      }
-    }
-    return workspace
-  }
-
-  /** Mirror one peer's recent ordinary Sessions. */
-  async syncPeerMirrors(peer) {
-    const info = await this.remoteCall(peer.id, 'device.info', {}, 15_000).catch(() => undefined)
-    const name = typeof info?.name === 'string' && info.name.length > 0 ? info.name : (peer.name ?? peer.id)
-    const list = await this.remoteCall(peer.id, 'session.list', {}, 20_000)
-    const items = (Array.isArray(list?.items) ? list.items : [])
-      .filter((item) => item !== null && typeof item === 'object' && typeof item.sessionId === 'string' && item.parentSessionId == null)
-      .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
-    const selected = items.filter((item, index) => index < MAX_MIRROR_SESSIONS || item.running === true)
-    if (selected.length === 0) return
-    const workspace = await this.ensureMirrorWorkspace(peer, name)
-    if (workspace === undefined) return
-    const device = this.mirrors.devices[peer.id] ?? { name, workspaceId: workspace.id, workspacePath: this.mirrorDirFor(peer.id), sessions: {} }
-    device.name = name
-    device.workspaceId = workspace.id
-    device.workspacePath = this.mirrorDirFor(peer.id)
-    this.mirrors.devices[peer.id] = device
-    let localSummaries
-    try {
-      localSummaries = await this.sessionList()
-    } catch {
-      localSummaries = []
-    }
-    const localIds = new Set(localSummaries.map((item) => item.sessionId))
-    for (const item of selected) {
-      const remoteSessionId = item.sessionId
-      let entry = device.sessions[remoteSessionId]
-      if (entry === undefined) {
-        entry = {
-          localId: this.localMirrorId(peer.id, remoteSessionId),
-          title: typeof item.title === 'string' ? item.title : '',
-          remoteSeq: -1,
-          updatedAt: item.updatedAt ?? 0,
-          createdAt: new Date().toISOString(),
-        }
-        device.sessions[remoteSessionId] = entry
-      }
-      entry.updatedAt = item.updatedAt ?? entry.updatedAt ?? 0
-      const local = this.service('sessions')?.get(entry.localId)
-      if (local === undefined && !localIds.has(entry.localId)) {
-        try {
-          const created = await this.requireSessions().create({ workspaceId: workspace.id, sessionId: entry.localId })
-          entry.remoteSeq = -1
-          await workspace.attachSession(created.sessionId).catch(() => {})
-        } catch (error) {
-          this.log('warn', `dsh-link: mirror create ${remoteSessionId}: ${errorMessage(error)}`)
-          continue
-        }
-      } else {
-        await workspace.attachSession(entry.localId).catch(() => {})
-      }
-      const live = this.service('sessions')?.get(entry.localId)
-      if (live !== undefined) {
-        await this.renameMirror(live, entry, typeof item.title === 'string' ? item.title : '')
-        await this.syncMirrorHistory(peer, entry, remoteSessionId)
-      }
     }
   }
 
@@ -1892,7 +1846,396 @@ class LinkHost {
     return { kind: 'reject' }
   }
 
-  /* ------------------------------ RPC routing ----------------------------- */
+  /** Ensure one local Workspace exists for a mirror directory. */
+  async ensureMirrorWorkspaceAt(directory, title) {
+    mkdirSync(directory, { recursive: true, mode: 0o700 })
+    const registry = this.service('workspaceRegistry')
+    if (registry === undefined) return undefined
+    let workspace
+    try {
+      workspace = await registry.resolveByPath(directory)
+    } catch {
+      workspace = undefined
+    }
+    const clean = typeof title === 'string' && title.length > 0 ? title.slice(0, 120) : '[远程]'
+    if (workspace === undefined) {
+      workspace = await registry.create(directory, clean)
+    } else if (workspace.title !== clean) {
+      try {
+        await workspace.setTitle(clean)
+      } catch {
+        // a title refresh is cosmetic
+      }
+    }
+    return workspace
+  }
+
+  /** Local workspace directory for one remote Project. */
+  mirrorWorkspaceDir(deviceId, remoteWorkspaceId) {
+    return join(this.mirrorDirFor(deviceId), `ws-${String(remoteWorkspaceId).replace(/[^A-Za-z0-9_.-]/gu, '_')}`)
+  }
+
+  /** Find the remote Workspace that owns a Session cwd. */
+  remoteWorkspaceOf(session, workspaces) {
+    const cwd = typeof session?.cwd === 'string' ? session.cwd : ''
+    if (cwd.length > 0) {
+      let best
+      for (const workspace of workspaces) {
+        if (typeof workspace.path !== 'string' || workspace.path.length === 0) continue
+        if (cwd === workspace.path || cwd.startsWith(`${workspace.path}${sep}`)) {
+          if (best === undefined || workspace.path.length > best.path.length) best = workspace
+        }
+      }
+      if (best !== undefined) return best
+    }
+    return undefined
+  }
+
+  /** Ensure the local Workspace projection of one remote Project. */
+  async ensureRemoteProjectWorkspace(peer, name, device, remoteWorkspace) {
+    const directory = remoteWorkspace === undefined
+      ? join(this.mirrorDirFor(peer.id), '_other')
+      : this.mirrorWorkspaceDir(peer.id, remoteWorkspace.workspaceId)
+    const suffix = remoteWorkspace === undefined ? '其他' : (remoteWorkspace.title || remoteWorkspace.path || '项目')
+    const shortName = (name.length > 20 ? name.slice(-14) : name).replace(/\.local$/iu, '')
+    const title = `[远程] ${suffix} · ${shortName}`
+    const workspace = await this.ensureMirrorWorkspaceAt(directory, title)
+    if (workspace === undefined) return undefined
+    const key = remoteWorkspace === undefined ? '' : remoteWorkspace.workspaceId
+    device.workspaces[key] = {
+      localWorkspaceId: workspace.id,
+      localPath: directory,
+      title: suffix,
+      remotePath: remoteWorkspace?.path ?? '',
+      remoteWorkspaceId: key,
+    }
+    return { workspace, key, directory }
+  }
+
+  /** Mirror one peer's recent ordinary Sessions, grouped by its Projects. */
+  async syncPeerMirrors(peer) {
+    const info = await this.remoteCall(peer.id, 'device.info', {}, 15_000).catch(() => undefined)
+    const name = typeof info?.name === 'string' && info.name.length > 0 ? info.name : (peer.name ?? peer.id)
+    const list = await this.remoteCall(peer.id, 'session.list', {}, 20_000)
+    const items = (Array.isArray(list?.items) ? list.items : [])
+      .filter((item) => item !== null && typeof item === 'object' && typeof item.sessionId === 'string' && item.parentSessionId == null)
+      .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0))
+    const selected = items.filter((item, index) => index < MAX_MIRROR_SESSIONS || item.running === true)
+    const device = this.mirrors.devices[peer.id] ?? { name, workspaces: {}, sessions: {} }
+    device.name = name
+    device.workspaces = device.workspaces ?? {}
+    device.sessions = device.sessions ?? {}
+    delete device.workspaceId
+    delete device.workspacePath
+    this.mirrors.devices[peer.id] = device
+    if (selected.length === 0) return
+
+    let remoteWorkspaces = []
+    try {
+      const workspaceList = await this.remoteCall(peer.id, 'workspace.list', {}, 20_000)
+      remoteWorkspaces = (Array.isArray(workspaceList?.items) ? workspaceList.items : [])
+        .filter((item) => item !== null && typeof item === 'object' && typeof item.workspaceId === 'string')
+    } catch {
+      remoteWorkspaces = []
+    }
+    const localByRemote = new Map()
+    for (const remoteWorkspace of remoteWorkspaces) {
+      const ensured = await this.ensureRemoteProjectWorkspace(peer, name, device, remoteWorkspace)
+      if (ensured !== undefined) localByRemote.set(remoteWorkspace.workspaceId, ensured)
+    }
+    let fallback
+    const ensureFallback = async () => {
+      if (fallback !== undefined) return fallback
+      fallback = await this.ensureRemoteProjectWorkspace(peer, name, device, undefined)
+      return fallback
+    }
+
+    let localSummaries
+    try {
+      localSummaries = await this.sessionList()
+    } catch {
+      localSummaries = []
+    }
+    const localIds = new Set(localSummaries.map((item) => item.sessionId))
+    for (const item of selected) {
+      const remoteSessionId = item.sessionId
+      const remoteWorkspace = this.remoteWorkspaceOf(item, remoteWorkspaces)
+      let target
+      if (remoteWorkspace === undefined) {
+        target = await ensureFallback()
+      } else {
+        target = localByRemote.get(remoteWorkspace.workspaceId)
+        if (target === undefined) target = await this.ensureRemoteProjectWorkspace(peer, name, device, remoteWorkspace)
+        if (target === undefined) target = await ensureFallback()
+      }
+      if (target === undefined) continue
+      let entry = device.sessions[remoteSessionId]
+      if (entry === undefined) {
+        entry = {
+          localId: this.localMirrorId(peer.id, remoteSessionId),
+          title: typeof item.title === 'string' ? item.title : '',
+          remoteSeq: -1,
+          updatedAt: item.updatedAt ?? 0,
+          createdAt: new Date().toISOString(),
+          workspaceId: target.key,
+        }
+        device.sessions[remoteSessionId] = entry
+      }
+      entry.workspaceId = target.key
+      entry.updatedAt = item.updatedAt ?? entry.updatedAt ?? 0
+      const local = this.service('sessions')?.get(entry.localId)
+      if (local === undefined && !localIds.has(entry.localId)) {
+        try {
+          const created = await this.requireSessions().create({ workspaceId: target.workspace.id, sessionId: entry.localId })
+          entry.remoteSeq = -1
+          await target.workspace.attachSession(created.sessionId).catch(() => {})
+        } catch (error) {
+          this.log('warn', `dsh-link: mirror create ${remoteSessionId}: ${errorMessage(error)}`)
+          continue
+        }
+      } else {
+        await target.workspace.attachSession(entry.localId).catch(() => {})
+      }
+      const live = this.service('sessions')?.get(entry.localId)
+      if (live !== undefined) {
+        await this.renameMirror(live, entry, typeof item.title === 'string' ? item.title : '')
+        await this.syncMirrorHistory(peer, entry, remoteSessionId)
+      }
+    }
+  }
+
+  /** Ensure one specific remote Session has a local mirror (on demand for older rows). */
+  async ensureMirrorSession(deviceRef, remoteSessionId) {
+    const peer = this.resolvePeer(deviceRef)
+    const remoteId = this.requireSessionId(remoteSessionId)
+    const existing = this.mirrorForRemote(peer.id, remoteId)
+    if (existing !== undefined) {
+      const local = this.service('sessions')?.get(existing.entry.localId)
+      const summaries = await this.sessionList().catch(() => [])
+      if (local !== undefined || summaries.some((item) => item.sessionId === existing.entry.localId)) {
+        return { localSessionId: existing.entry.localId, workspaceId: existing.entry.workspaceId ?? '', title: existing.entry.title ?? '' }
+      }
+    }
+    await this.syncPeerMirrors(peer)
+    const after = this.mirrorForRemote(peer.id, remoteId)
+    if (after !== undefined) {
+      return { localSessionId: after.entry.localId, workspaceId: after.entry.workspaceId ?? '', title: after.entry.title ?? '' }
+    }
+    throw new LinkError('not-found', `远程会话 ${remoteId} 不在最近镜像范围内`)
+  }
+
+  /** Read the Workspace baseline (workspaces, archive set, pins). */
+  async workspaceSnapshot() {
+    const controller = this.service('workspaceController')
+    if (controller === undefined) {
+      return {
+        items: this.workspaceItems().map((item) => ({
+          workspaceId: item.workspaceId,
+          path: item.path,
+          title: item.title,
+          sessionIds: [],
+        })),
+        archivedSessionIds: [],
+        pinnedSessionIds: [],
+      }
+    }
+    const abort = new AbortController()
+    try {
+      for await (const frame of controller.follow(abort.signal)) {
+        abort.abort()
+        if (frame?.type === 'baseline') return frame.value
+      }
+    } catch {
+      // fall through to the static projection
+    }
+    return {
+      items: this.workspaceItems().map((item) => ({
+        workspaceId: item.workspaceId,
+        path: item.path,
+        title: item.title,
+        sessionIds: [],
+      })),
+      archivedSessionIds: [],
+      pinnedSessionIds: [],
+    }
+  }
+
+  /** Group session rows by their owning workspace path (longest prefix wins). */
+  groupSessionsByWorkspace(workspaces, sessions) {
+    const groups = new Map(workspaces.map((workspace) => [workspace.workspaceId, { workspace, rows: [] }]))
+    const orphans = []
+    for (const session of sessions) {
+      const cwd = typeof session.cwd === 'string' ? session.cwd : ''
+      let best
+      for (const workspace of workspaces) {
+        if (typeof workspace.path !== 'string' || workspace.path.length === 0) continue
+        if (cwd === workspace.path || cwd.startsWith(`${workspace.path}${sep}`)) {
+          if (best === undefined || workspace.path.length > best.path.length) best = workspace
+        }
+      }
+      if (best === undefined) orphans.push(session)
+      else groups.get(best.workspaceId).rows.push(session)
+    }
+    return { groups, orphans }
+  }
+
+  /** Local Workspaces and Sessions for the workspace tab page. */
+  async localTree() {
+    const snapshot = await this.workspaceSnapshot()
+    const registry = this.service('workspaceRegistry')
+    const raw = registry !== undefined ? registry.list() : []
+    const workspaces = raw
+      .filter((workspace) => !this.isMirrorPath(workspace.path))
+      .map((workspace) => ({
+        workspaceId: workspace.id,
+        title: workspace.title,
+        path: workspace.path,
+      }))
+    const sessions = (await this.remoteSessionList()).filter((item) => item.parentSessionId == null)
+    const { groups, orphans } = this.groupSessionsByWorkspace(workspaces, sessions)
+    return {
+      workspaces: workspaces.map((workspace) => ({
+        ...workspace,
+        sessions: groups.get(workspace.workspaceId).rows,
+      })),
+      orphanSessions: orphans,
+      archivedSessionIds: Array.isArray(snapshot.archivedSessionIds) ? snapshot.archivedSessionIds : [],
+      pinnedSessionIds: Array.isArray(snapshot.pinnedSessionIds) ? snapshot.pinnedSessionIds : [],
+    }
+  }
+
+  /** Remote Workspaces and Sessions for one device tab. */
+  async remoteTree(deviceRef) {
+    const peer = this.resolvePeer(deviceRef)
+    const [workspaceList, list] = await Promise.all([
+      this.remoteCall(peer.id, 'workspace.list', {}, 20_000),
+      this.remoteCall(peer.id, 'session.list', {}, 20_000),
+    ])
+    let snapshot = { archivedSessionIds: [], pinnedSessionIds: [] }
+    try {
+      const value = await this.remoteCall(peer.id, 'workspace.snapshot', {}, 20_000)
+      snapshot = { archivedSessionIds: Array.isArray(value?.archivedSessionIds) ? value.archivedSessionIds : [], pinnedSessionIds: Array.isArray(value?.pinnedSessionIds) ? value.pinnedSessionIds : [] }
+    } catch {
+      // Older Host versions expose only workspace.list.
+    }
+    const workspaces = (Array.isArray(workspaceList?.items) ? workspaceList.items : [])
+      .filter((workspace) => workspace !== null && typeof workspace === 'object' && typeof workspace.workspaceId === 'string')
+      .map((workspace) => ({
+        workspaceId: workspace.workspaceId,
+        title: workspace.title,
+        path: workspace.path,
+        localWorkspaceId: this.mirrors.devices?.[peer.id]?.workspaces?.[workspace.workspaceId]?.localWorkspaceId ?? '',
+      }))
+    const sessions = (Array.isArray(list?.items) ? list.items : [])
+      .filter((item) => item !== null && typeof item === 'object' && item.sessionId && item.parentSessionId == null)
+      .map((row) => ({
+        ...row,
+        localSessionId: this.mirrorForRemote(peer.id, row.sessionId)?.entry.localId ?? '',
+      }))
+    const { groups, orphans } = this.groupSessionsByWorkspace(workspaces, sessions)
+    return {
+      deviceId: peer.id,
+      deviceName: peer.name,
+      workspaces: workspaces.map((workspace) => ({
+        ...workspace,
+        sessions: groups.get(workspace.workspaceId).rows.map((row) => ({
+          ...row,
+          workspaceId: workspace.workspaceId,
+        })),
+      })),
+      orphanSessions: orphans,
+      archivedSessionIds: snapshot.archivedSessionIds,
+      pinnedSessionIds: snapshot.pinnedSessionIds,
+    }
+  }
+
+  /** Require the Workspace controller service. */
+  requireWorkspaceController() {
+    const service = this.service('workspaceController')
+    if (service === undefined) throw new LinkError('unavailable', '本机未加载工作区控制器')
+    return service
+  }
+
+  /** Workspace baseline for remote tree consumers. */
+  async workspaceSnapshotView() {
+    return await this.workspaceSnapshot()
+  }
+
+  /** Read one Session's title, preset, model selection and state. */
+  async sessionInfo(sessionId) {
+    const id = this.requireSessionId(sessionId)
+    const sessions = this.requireSessions()
+    let summary
+    try {
+      const list = await sessions.list({}, AbortSignal.timeout(15_000))
+      summary = (Array.isArray(list?.items) ? list.items : []).find((item) => item?.sessionId === id)
+    } catch {
+      summary = undefined
+    }
+    const live = this.service('sessions')?.get(id)
+    const projections = summary?.projections?.values ?? {}
+    const presetService = this.service('agentPresets')
+    let agentPreset = typeof projections.agentPreset === 'string' ? projections.agentPreset : null
+    if (live !== undefined && presetService !== undefined) {
+      try {
+        agentPreset = presetService.presetForSession(live) ?? agentPreset
+      } catch {
+        // keep the projection fallback
+      }
+    }
+    const selection = projections.modelSelection
+    const modelSelection = selection !== null && typeof selection === 'object'
+      ? (selection.lastUsed ?? selection.next ?? null)
+      : null
+    let state = null
+    try {
+      state = await this.sessionState(id, AbortSignal.timeout(10_000))
+    } catch {
+      state = null
+    }
+    return {
+      sessionId: id,
+      title: typeof projections.title === 'string' ? projections.title : (summary?.title ?? ''),
+      cwd: summary?.cwd ?? null,
+      agentAvailable: summary?.agentAvailable !== false,
+      agentPreset,
+      modelSelection,
+      state,
+    }
+  }
+
+  /** List agent presets for remote settings selectors. */
+  async agentPresetList() {
+    const service = this.service('agentPresets')
+    if (service === undefined) return { presets: [] }
+    if (typeof service.remoteExportList === 'function') {
+      return await service.remoteExportList()
+    }
+    const list = await service.list()
+    return {
+      presets: (Array.isArray(list) ? list : []).map((preset) => ({
+        id: preset.id,
+        name: preset.name,
+        description: preset.description,
+        isDefault: preset.isDefault === true || preset.default === true,
+        ...(typeof preset.broken === 'string' ? { broken: preset.broken } : {}),
+      })),
+    }
+  }
+
+  /** Select an Agent preset for one Session. */
+  async sessionSelectPreset(sessionId, agentPreset) {
+    const id = this.requireSessionId(sessionId)
+    if (typeof agentPreset !== 'string' || agentPreset.length === 0) throw new LinkError('bad-request', '缺少 agentPreset')
+    const service = this.service('agentPresets')
+    if (service === undefined) throw new LinkError('unavailable', '本机未加载 Agent 预设')
+    const resolved = await this.requireSessions().resolveAgent(id)
+    if (resolved === null || typeof resolved !== 'object' || resolved.agent === undefined) {
+      throw new LinkError('not-found', '无法恢复该会话的 Agent')
+    }
+    const selected = await service.select(resolved.agent, agentPreset)
+    return { agentPreset: selected }
+  }
 
   /** Execute one local method for a remote caller. */
   async invokeLocal(method, params, signal) {
@@ -1920,6 +2263,54 @@ class LinkHost {
       case 'session.history': {
         const sessionId = this.requireSessionId(params?.sessionId)
         return await this.sessionHistory(sessionId, params?.maxMessages, signal)
+      }
+      case 'workspace.snapshot':
+        return await this.workspaceSnapshotView()
+      case 'workspace.rename': {
+        const workspaceId = typeof params?.workspaceId === 'string' ? params.workspaceId : ''
+        const title = typeof params?.title === 'string' ? params.title.trim() : ''
+        if (workspaceId.length === 0 || title.length === 0) throw new LinkError('bad-request', '缺少 workspaceId 或 title')
+        const value = await this.requireWorkspaceController().rename({ workspaceId, title: title.slice(0, 120) })
+        return { workspace: value?.workspace ?? value }
+      }
+      case 'workspace.delete': {
+        const workspaceId = typeof params?.workspaceId === 'string' ? params.workspaceId : ''
+        if (workspaceId.length === 0) throw new LinkError('bad-request', '缺少 workspaceId')
+        return await this.requireWorkspaceController().delete({ workspaceId })
+      }
+      case 'session.archive': {
+        const sessionId = this.requireSessionId(params?.sessionId)
+        await this.requireWorkspaceController().archiveSession({ sessionId, stopActivity: true })
+        return { accepted: true }
+      }
+      case 'session.unarchive': {
+        const sessionId = this.requireSessionId(params?.sessionId)
+        await this.requireWorkspaceController().unarchiveSession({ sessionId })
+        return { accepted: true }
+      }
+      case 'session.pin': {
+        const sessionId = this.requireSessionId(params?.sessionId)
+        await this.requireWorkspaceController().pinSession({ sessionId })
+        return { accepted: true }
+      }
+      case 'session.unpin': {
+        const sessionId = this.requireSessionId(params?.sessionId)
+        await this.requireWorkspaceController().unpinSession({ sessionId })
+        return { accepted: true }
+      }
+      case 'session.info':
+        return await this.sessionInfo(params?.sessionId)
+      case 'agent.presets':
+        return await this.agentPresetList()
+      case 'session.selectPreset':
+        return await this.sessionSelectPreset(params?.sessionId, params?.agentPreset)
+      case 'model.catalog':
+        return await this.requireSessions().modelCatalog()
+      case 'session.selectModel': {
+        const sessionId = this.requireSessionId(params?.sessionId)
+        const selection = params?.selection
+        if (selection === null || typeof selection !== 'object') throw new LinkError('bad-request', '缺少 selection')
+        return await this.requireSessions().selectModel({ sessionId, selection }, signal ?? AbortSignal.timeout(RPC_TIMEOUT_MS))
       }
       case 'speech.status':
         return this.speechStatus()
@@ -2114,7 +2505,7 @@ class LinkHost {
         const registry = this.service('workspaceRegistry')
         const archived = []
         const workspaces = []
-        for (const device of Object.values(this.mirrors.devices ?? {})) {
+        for (const [deviceId, device] of Object.entries(this.mirrors.devices ?? {})) {
           for (const entry of Object.values(device.sessions ?? {})) {
             if (registry !== undefined && typeof entry.localId === 'string') {
               try {
@@ -2125,16 +2516,18 @@ class LinkHost {
               }
             }
           }
-          if (registry !== undefined && typeof device.workspaceId === 'string') {
-            try {
-              await registry.delete(device.workspaceId)
-              workspaces.push(device.workspaceId)
-            } catch {
-              // already gone
+          for (const mapping of Object.values(device.workspaces ?? {})) {
+            if (registry !== undefined && typeof mapping?.localWorkspaceId === 'string') {
+              try {
+                await registry.delete(mapping.localWorkspaceId)
+                workspaces.push(mapping.localWorkspaceId)
+              } catch {
+                // already gone
+              }
             }
           }
           try {
-            rmSync(this.mirrorDirFor(device.workspacePath?.split('/').pop() ?? ''), { recursive: true, force: true })
+            rmSync(this.mirrorDirFor(deviceId), { recursive: true, force: true })
           } catch {
             // best effort
           }
@@ -2143,6 +2536,24 @@ class LinkHost {
         this.saveMirrorStore()
         return { archived, workspaces }
       }
+      case 'tree':
+        return await this.localTree()
+      case 'remote-tree': {
+        const peer = this.resolvePeer(extra?.device)
+        return await this.remoteTree(peer.id)
+      }
+      case 'ensure-mirror': {
+        const peer = this.resolvePeer(extra?.device)
+        return await this.ensureMirrorSession(peer.id, extra?.sessionId)
+      }
+      case 'session-info':
+        return await this.sessionInfo(extra?.sessionId)
+      case 'models':
+        return await this.requireSessions().modelCatalog()
+      case 'presets':
+        return await this.agentPresetList()
+      case 'workspace-snapshot':
+        return await this.workspaceSnapshot()
       case 'mirror-list': {
         const list = await this.sessionList()
         return { items: list.filter((item) => typeof item.cwd === 'string' && item.cwd.includes(`${join(dataDir(), 'mirrors')}`)) }
@@ -2397,7 +2808,7 @@ function toolDefinitions(host) {
       parameters: {
         type: 'object',
         properties: {
-          what: { type: 'string', enum: ['config', 'sessions', 'titles', 'workspaces', 'speech', 'events', 'raw', 'list', 'state', 'follow', 'speech-test', 'mirror-probe', 'mirror-list', 'mirror-cleanup', 'types'] },
+          what: { type: 'string', enum: ['config', 'sessions', 'titles', 'workspaces', 'speech', 'events', 'raw', 'list', 'state', 'follow', 'speech-test', 'mirror-probe', 'mirror-list', 'mirror-cleanup', 'types', 'tree', 'remote-tree', 'ensure-mirror', 'workspace-snapshot', 'models', 'presets', 'session-info'] },
           session_id: { type: 'string', description: 'Required when what is events/raw/state/follow.' },
           before_seq: { type: 'number', description: 'Optional raw-event page cursor.' },
           device: { type: 'string', description: 'Target peer for mirror-probe.' },
@@ -2491,7 +2902,74 @@ async function handleApiRoute(request, host) {
           ...(typeof body.workspaceId === 'string' && body.workspaceId.length > 0 ? { workspaceId: body.workspaceId } : {}),
           ...(typeof body.cwd === 'string' && body.cwd.length > 0 ? { cwd: body.cwd } : {}),
         })
-        return jsonResponse(200, { ok: true, ...result })
+        const mirror = await host.ensureMirrorSession(peer.id, result.sessionId).catch(() => undefined)
+        return jsonResponse(200, { ok: true, ...result, localSessionId: mirror?.localSessionId ?? '' })
+      }
+      case 'tree': {
+        const tree = typeof body.deviceId === 'string' && body.deviceId.length > 0
+          ? await host.remoteTree(body.deviceId)
+          : await host.localTree()
+        return jsonResponse(200, { ok: true, tree })
+      }
+      case 'ensureMirror': {
+        const peer = requireDevice(host, body.deviceId)
+        const mirror = await host.ensureMirrorSession(peer.id, body.sessionId)
+        return jsonResponse(200, { ok: true, ...mirror })
+      }
+      case 'archive': {
+        if (typeof body.sessionId !== 'string') return jsonResponse(400, { ok: false, error: '缺少 sessionId' })
+        const archived = body.archived !== false
+        if (typeof body.deviceId === 'string' && body.deviceId.length > 0) {
+          const peer = requireDevice(host, body.deviceId)
+          await host.remoteCall(peer.id, archived ? 'session.archive' : 'session.unarchive', { sessionId: body.sessionId })
+          const mirror = host.mirrorForRemote(peer.id, body.sessionId)
+          const registry = host.service('workspaceRegistry')
+          if (mirror !== undefined && registry !== undefined) {
+            if (archived) await registry.archiveSession(mirror.entry.localId, { stopActivity: true }).catch(() => {})
+            else await registry.unarchiveSession(mirror.entry.localId).catch(() => {})
+          }
+          return jsonResponse(200, { ok: true })
+        }
+        const registry = host.service('workspaceRegistry')
+        if (registry === undefined) return jsonResponse(400, { ok: false, error: '本机缺少 workspaceRegistry' })
+        if (archived) await registry.archiveSession(body.sessionId, { stopActivity: true })
+        else await registry.unarchiveSession(body.sessionId)
+        return jsonResponse(200, { ok: true })
+      }
+      case 'renameWorkspace': {
+        if (typeof body.deviceId !== 'string' || typeof body.workspaceId !== 'string' || typeof body.title !== 'string') {
+          return jsonResponse(400, { ok: false, error: '缺少 deviceId/workspaceId/title' })
+        }
+        const peer = requireDevice(host, body.deviceId)
+        const title = body.title.trim()
+        if (title.length === 0) return jsonResponse(400, { ok: false, error: '标题不能为空' })
+        await host.remoteCall(peer.id, 'workspace.rename', { workspaceId: body.workspaceId, title })
+        const mapping = host.mirrors.devices?.[peer.id]?.workspaces?.[body.workspaceId]
+        if (mapping !== undefined) {
+          mapping.title = title
+          const registry = host.service('workspaceRegistry')
+          const workspace = registry?.get(mapping.localWorkspaceId)
+          if (workspace !== undefined) {
+            const deviceName = host.mirrors.devices[peer.id].name
+            const shortName = (deviceName.length > 20 ? deviceName.slice(-14) : deviceName).replace(/\.local$/iu, '')
+            await workspace.setTitle(`[远程] ${title} · ${shortName}`).catch(() => {})
+          }
+          host.saveMirrorStore()
+        }
+        return jsonResponse(200, { ok: true, title })
+      }
+      case 'models': {
+        const peer = requireDevice(host, body.deviceId)
+        const catalog = await host.remoteCall(peer.id, 'model.catalog', {})
+        return jsonResponse(200, { ok: true, catalog })
+      }
+      case 'selectModel': {
+        const peer = requireDevice(host, body.deviceId)
+        const result = await host.remoteCall(peer.id, 'session.selectModel', {
+          sessionId: body.sessionId,
+          selection: body.selection,
+        })
+        return jsonResponse(200, { ok: true, result })
       }
       case 'rename': {
         const peer = requireDevice(host, body.deviceId)
@@ -2499,8 +2977,53 @@ async function handleApiRoute(request, host) {
           sessionId: body.sessionId,
           title: body.title,
         })
+        const mirror = host.mirrorForRemote(peer.id, body.sessionId)
+        if (mirror !== undefined) {
+          mirror.entry.title = typeof result?.title === 'string' ? result.title : body.title
+          const local = host.service('sessions')?.get(mirror.entry.localId)
+          if (local !== undefined) await host.renameMirror(local, mirror.entry, mirror.entry.title)
+          host.saveMirrorStore()
+        }
         return jsonResponse(200, { ok: true, ...result })
       }
+      case 'sessionInfo': {
+        if (typeof body.sessionId !== 'string') return jsonResponse(400, { ok: false, error: '缺少 sessionId' })
+        if (typeof body.deviceId === 'string' && body.deviceId.length > 0) {
+          const peer = requireDevice(host, body.deviceId)
+          return jsonResponse(200, { ok: true, session: await host.remoteCall(peer.id, 'session.info', { sessionId: body.sessionId }) })
+        }
+        return jsonResponse(200, { ok: true, session: await host.sessionInfo(body.sessionId) })
+      }
+      case 'presets': {
+        if (typeof body.deviceId === 'string' && body.deviceId.length > 0) {
+          const peer = requireDevice(host, body.deviceId)
+          return jsonResponse(200, { ok: true, roster: await host.remoteCall(peer.id, 'agent.presets', {}) })
+        }
+        return jsonResponse(200, { ok: true, roster: await host.agentPresetList() })
+      }
+      case 'selectPreset': {
+        if (typeof body.deviceId !== 'string' || typeof body.sessionId !== 'string' || typeof body.agentPreset !== 'string') {
+          return jsonResponse(400, { ok: false, error: '缺少 deviceId/sessionId/agentPreset' })
+        }
+        const peer = requireDevice(host, body.deviceId)
+        const result = await host.remoteCall(peer.id, 'session.selectPreset', { sessionId: body.sessionId, agentPreset: body.agentPreset })
+        return jsonResponse(200, { ok: true, ...result })
+      }
+      case 'localRenameSession': {
+        if (typeof body.sessionId !== 'string' || typeof body.title !== 'string') return jsonResponse(400, { ok: false, error: '缺少 sessionId/title' })
+        const result = await host.requireSessions().rename({ sessionId: body.sessionId, title: body.title.trim().slice(0, 200) })
+        return jsonResponse(200, { ok: true, title: typeof result?.title === 'string' ? result.title : body.title })
+      }
+      case 'localRenameWorkspace': {
+        if (typeof body.workspaceId !== 'string' || typeof body.title !== 'string') return jsonResponse(400, { ok: false, error: '缺少 workspaceId/title' })
+        const registry = host.service('workspaceRegistry')
+        const workspace = registry?.get(body.workspaceId)
+        if (workspace === undefined) return jsonResponse(404, { ok: false, error: '工作区不存在' })
+        await workspace.setTitle(body.title.trim().slice(0, 120))
+        return jsonResponse(200, { ok: true, title: body.title })
+      }
+      case 'localModels':
+        return jsonResponse(200, { ok: true, catalog: await host.requireSessions().modelCatalog() })
       case 'mirrors':
         return jsonResponse(200, { ok: true, items: host.mirrorList() })
       case 'watch': {
