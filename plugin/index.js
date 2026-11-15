@@ -852,6 +852,8 @@ class LinkHost {
     this.questionWaits = new Map()
     /** Question requests this host received from a peer, awaiting a local answer. */
     this.incomingQuestions = new Map()
+    /** Serialized async mirror appends, so image localization cannot reorder records. */
+    this.mirrorQueues = new Map()
     this.lastArchiveError = null
   }
 
@@ -2294,13 +2296,7 @@ class LinkHost {
     }, 30_000)
     const records = (Array.isArray(history?.records) ? history.records : [])
       .filter((record) => record !== null && typeof record === 'object' && Number.isFinite(record.seq) && record.seq > (entry.remoteSeq ?? -1))
-    if (records.length > 0) {
-      const appended = this.appendMirrorRecords(entry, records)
-      if (appended.length > 0) {
-        entry.remoteSeq = appended[appended.length - 1].seq
-        this.saveMirrorStore()
-      }
-    }
+    if (records.length > 0) await this.enqueueMirrorAppend(entry, peer.id, records)
     if (typeof history?.title === 'string' && history.title.length > 0) {
       await this.renameMirror(session, entry, history.title)
     }
@@ -2367,6 +2363,84 @@ class LinkHost {
     return { turn: cursor.localTurn, step: cursor.localStep }
   }
 
+  /** Serialize async mirror appends per Session so record order is preserved. */
+  enqueueMirrorAppend(entry, deviceId, records) {
+    const key = entry.localId
+    const previous = this.mirrorQueues.get(key) ?? Promise.resolve()
+    const next = previous.then(async () => {
+      const localized = await this.localizeMirrorImages(entry, deviceId, records)
+      const appended = this.appendMirrorRecords(entry, localized)
+      if (appended.length > 0) {
+        entry.remoteSeq = appended[appended.length - 1].seq
+        this.saveMirrorStore()
+      }
+      return appended
+    }).catch((error) => {
+      this.log('warn', `dsh-link: mirror append ${key}: ${errorMessage(error)}`)
+      return []
+    })
+    this.mirrorQueues.set(key, next)
+    if (this.mirrorQueues.size > 400) {
+      for (const [id, promise] of this.mirrorQueues) {
+        if (id === key) continue
+        // Keep only queues that are still pending; settled ones hold no state.
+        void promise.then(() => { if (this.mirrorQueues.get(id) === promise && this.mirrorQueues.size > 200) this.mirrorQueues.delete(id) })
+      }
+    }
+    return next
+  }
+
+  /**
+   * Bring the images of mirrored user records into the local attachment store.
+   * A record only names the peer's attachment, so the bytes are fetched once and
+   * saved locally; later records reuse the cached local reference.
+   */
+  async localizeMirrorImages(entry, deviceId, records) {
+    const attachments = this.service('attachments')
+    if (attachments === undefined) {
+      // Without a local attachment store a remote reference cannot render, so
+      // keep the record text-only rather than pointing at unknown ids.
+      return records.map((record) => (record?.kind === 'user' && Array.isArray(record.images)
+        ? { ...record, images: [], imageCount: record.images.length }
+        : record))
+    }
+    const cache = entry.imageCache !== null && typeof entry.imageCache === 'object' ? entry.imageCache : (entry.imageCache = {})
+    const out = []
+    for (const record of Array.isArray(records) ? records : []) {
+      if (record === null || typeof record !== 'object' || record.kind !== 'user' || !Array.isArray(record.images) || record.images.length === 0) {
+        out.push(record)
+        continue
+      }
+      const localImages = []
+      for (const image of record.images) {
+        const cached = typeof image?.attachmentId === 'string' ? cache[image.attachmentId] : undefined
+        if (cached !== undefined) {
+          localImages.push(cached)
+          continue
+        }
+        try {
+          const read = await this.remoteCall(deviceId, 'attachment.image', { attachment: image }, 20_000)
+          const base64 = typeof read?.data === 'string' ? read.data : ''
+          if (base64.length === 0) continue
+          const mediaType = typeof read?.attachment?.mediaType === 'string' ? read.attachment.mediaType : image.mediaType
+          const reference = await attachments.saveImage({
+            data: new Uint8Array(Buffer.from(base64, 'base64')),
+            mediaType,
+            ...(typeof image.name === 'string' && image.name.length > 0 ? { name: image.name } : {}),
+          })
+          cache[image.attachmentId] = reference
+          localImages.push(reference)
+        } catch (error) {
+          this.log('warn', `dsh-link: mirror image ${image?.attachmentId ?? '?'}: ${errorMessage(error)}`)
+        }
+      }
+      const keys = Object.keys(cache)
+      if (keys.length > 200) for (const old of keys.slice(0, keys.length - 200)) delete cache[old]
+      out.push({ ...record, images: localImages })
+    }
+    return out
+  }
+
   /** Append compact protocol records to one local mirror Session. */
   appendMirrorRecords(entry, records) {
     const session = this.service('sessions')?.get(entry.localId)
@@ -2379,11 +2453,14 @@ class LinkHost {
       try {
         if (record.kind === 'user') {
           const raw = typeof record.text === 'string' ? record.text : ''
-          const imageCount = Array.isArray(record.images) ? record.images.length : 0
-          // The peer's attachment bytes are not part of the record stream; keep a
-          // readable placeholder so an image-only message still shows up.
-          const text = raw.length > 0 ? raw : imageCount > 0 ? `[图片 ×${imageCount}]` : ''
-          const pendingIndex = pending.findIndex((item) => item === text || (item.length === 0 && raw.length === 0))
+          const images = Array.isArray(record.images) ? record.images.filter((image) => image !== null && typeof image === 'object' && typeof image.attachmentId === 'string') : []
+          const content = []
+          if (raw.length > 0) content.push({ type: 'text', text: raw })
+          for (const image of images) content.push({ type: 'image', attachment: image })
+          // An image whose bytes could not be localized still has to show up.
+          const imageCount = images.length > 0 ? images.length : (Number.isFinite(record.imageCount) ? record.imageCount : 0)
+          if (content.length === 0) content.push({ type: 'text', text: imageCount > 0 ? `[图片 ×${imageCount}]` : '（远程消息没有可显示内容）' })
+          const pendingIndex = pending.findIndex((item) => item === raw || (item.length === 0 && raw.length === 0))
           if (pendingIndex >= 0) {
             pending.splice(pendingIndex, 1)
             appended.push(record)
@@ -2393,7 +2470,7 @@ class LinkHost {
           session.append('user/message', {
             id: randomUUID(),
             role: 'user',
-            content: [{ type: 'text', text }],
+            content,
             source: { kind: 'user' },
           }, { surfaceOp: 'append' })
           appended.push(record)
@@ -2655,20 +2732,13 @@ class LinkHost {
           if (data.t === 'snapshot') {
             const incoming = (Array.isArray(data.records) ? data.records : [])
               .filter((record) => record !== null && typeof record === 'object' && Number.isFinite(record.seq) && record.seq > (entry.remoteSeq ?? -1))
-            const appended = this.appendMirrorRecords(entry, incoming)
-            if (appended.length > 0) {
-              entry.remoteSeq = appended[appended.length - 1].seq
-              this.saveMirrorStore()
-            }
-            const session = this.service('sessions')?.get(localSessionId)
-            if (session !== undefined && this.streamingEnabled()) this.publishMirrorAssistantBaseline(entry, session, data.assistantStream)
+            void this.enqueueMirrorAppend(entry, deviceId, incoming).then(() => {
+              const session = this.service('sessions')?.get(localSessionId)
+              if (session !== undefined && this.streamingEnabled()) this.publishMirrorAssistantBaseline(entry, session, data.assistantStream)
+            })
           } else if (data.t === 'record' && data.record !== null && typeof data.record === 'object') {
             if (Number.isFinite(data.record.seq) && data.record.seq > (entry.remoteSeq ?? -1)) {
-              const appended = this.appendMirrorRecords(entry, [data.record])
-              if (appended.length > 0) {
-                entry.remoteSeq = appended[appended.length - 1].seq
-                this.saveMirrorStore()
-              }
+              void this.enqueueMirrorAppend(entry, deviceId, [data.record])
             }
           } else if (data.t === 'assistant-stream' && data.frame !== null && typeof data.frame === 'object') {
             const session = this.service('sessions')?.get(localSessionId)
@@ -3620,6 +3690,18 @@ class LinkHost {
         return await this.sessionCancel(params)
       case 'session.rename':
         return await this.sessionRename(params)
+      case 'attachment.image': {
+        const ref = params?.attachment
+        if (ref === null || typeof ref !== 'object' || typeof ref.attachmentId !== 'string') {
+          throw new LinkError('bad-request', '缺少附件引用')
+        }
+        const attachments = this.service('attachments')
+        if (attachments === undefined) throw new LinkError('unavailable', '本机没有附件服务')
+        const stored = await attachments.readImage(ref, AbortSignal.timeout(20_000))
+        const bytes = Buffer.from(stored.data)
+        if (bytes.byteLength > MAX_PROMPT_IMAGE_BYTES) throw new LinkError('bad-request', '图片超过大小限制')
+        return { attachment: stored.ref, data: bytes.toString('base64') }
+      }
       case 'session.state': {
         const sessionId = this.requireSessionId(params?.sessionId)
         return await this.sessionState(sessionId, signal)

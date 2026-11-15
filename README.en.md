@@ -21,7 +21,7 @@
 | **Native remote conversation** | Remote messages, tool calls/results and turn state render in the normal DSH chat; tool cards stay collapsed by default and remote replies stream token by token. Sending from the native composer forwards the prompt to that computer | Click a remote Session |
 | **Session status** | A running remote turn shows a spinner on its sidebar row; a finished or failed turn keeps a green or red dot for 10 minutes, and queued message counts sit inline | Sidebar → Workspaces |
 | **Remote questions** | When the remote Agent asks a question, an answer card pops up locally (options, multi-select, custom answer) and the answer goes back to that question | Remote Session / popup |
-| **Image sending** | Paste or pick an image in a mirrored Session; it is uploaded with the prompt and appears in both transcripts | Native composer |
+| **Images both ways** | Paste or pick an image in a mirrored Session; it is uploaded with the prompt and appears in both transcripts, and images arriving from the remote side are fetched and rendered locally | Native composer |
 | **Rich event mirroring** | Goal mode, plan state, task board, team board, approval cards, titles and model chips are mirrored as native Session events, so the local UI matches the remote one | Inside the remote Session |
 | **Cross-device manager** | One tab per computer (plus this one): search projects/Sessions, create Sessions, rename Sessions/projects, archive/unarchive, show archived, copy IDs, more actions | Sidebar → **Cross-device** |
 | **Remote Session settings** | Session title, model, reasoning effort, Agent preset and archive; model/reasoning effort sync both ways with the local selector | Gear next to the remote Session title (or on the Session row) |

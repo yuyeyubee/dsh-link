@@ -183,6 +183,7 @@ relay 向被调方发 `{ "t":"unsub", "rid":"r7" }`，被调方必须中止对�
 | `workspace.delete` | `{ "workspaceId" }` | `{ "deleted": true }` |
 | `session.list` | `{}` | `{ "items": [ SessionSummaryView ] }` |
 | `session.create` | `{ "workspaceId"?, "cwd"?, "agentPreset"? }` | `{ "sessionId" }` |
+| `attachment.image` | `{ "attachment": ImageAttachmentRef }` | `{ "attachment": ImageAttachmentRef, "data": base64 }` |
 | `session.prompt` | `{ "sessionId", "text"?, "content"?: [ { "type":"text","text" } \| { "type":"image","mediaType","data","name"? } ], "mode"?: "queue"\|"steer" }` | `{ "accepted": true }` |
 | `session.cancel` | `{ "sessionId" }` | `{ "accepted": true }` |
 | `session.rename` | `{ "sessionId", "title" }` | `{ "title" }` |
@@ -254,7 +255,7 @@ Host 把 DSH 会话事件映射为下表的记录；**只读**，不改变本地
 
 - `user` 来自 `user/message` 的文本块；`assistant` 来自 `assistant/message` 的文本块，`reasoning` 为其 reasoning 块（可缺省）。
 - `assistant` / `tool-call` / `tool-result` 携带源事件的 `turn`、`step`，接收端可据此把工具调用还原成原生工具卡片（而不是折叠成一段文本）。
-- 用户消息可带 `images`（远程附件引用）；图片字节本身不随记录传输，需要通过 `session.prompt` 的图片上传来提供。
+- 用户消息可带 `images`（远程附件引用）；图片字节本身不随记录传输：发送方向走 `session.prompt` 的图片上传，接收方向由接收端按 `attachment.image` 取回字节并写入本机附件库（按 `attachmentId` 缓存）。
 - 工具 `args` 与工具结果 `text` 按原文传输（上限 64 KiB），因为原生工具视图（任务看板、计划摘要）需要解析完整 JSON；`text` 上限 8 KiB、`reasoning` 4 KiB、`event.data` 32 KiB。
 - 未知事件忽略；`turn-end.reason` 用 `TurnEndReason` 的 `kind` 字符串。
 - 记录按 `seq` 升序返回。

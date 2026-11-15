@@ -72,6 +72,9 @@
 2b. 远程状态（`running` / 排队数 / 待回答问题）由 `session.list`、follow 的 `state` 帧与
     提问转发维护在 Host 内存中，Web UI 每 3 秒轮询 `mirrorStatus`，在会话行渲染转圈/绿点/
     红点；待回答问题同时注册为 DSH 原生 pending interaction，侧栏显示「等待回答」；
+2bb. 远程消息里的图片先经 `attachment.image` 取回字节，用本机附件服务 `saveImage()` 落地后
+    以本机附件引用写入镜像日志（按远程 `attachmentId` 缓存），因此远程发来的图片在本机原生
+    对话里同样显示；
 2c. 远程 `ask_user_question` 通过 Host 的 `user-questions/request` waterfall 转发给在线设备，
     第一个作答的结果用于回答本机提问；本机问答 UI 与远程作答竞争，谁先回答谁生效；
 3. 打开镜像会话时，Web UI 的会话头组件向 Host 发 `watch`，Host 订阅远程

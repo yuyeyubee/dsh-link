@@ -1451,3 +1451,73 @@ test('an image-only user message still maps to a record with its image refs', as
   assert.equal(record.images[0].attachmentId, 'att_9')
   assert.equal(record.images[0].mediaType, 'image/png')
 })
+
+test('a peer reads one mirrored image through attachment.image', async () => {
+  const services = makeServices()
+  const host = makeHost(services)
+  const attachments = makeAttachments()
+  const original = host.service.bind(host)
+  host.service = (key) => (key === 'attachments' ? attachments : original(key))
+  const result = await host.invokeLocal('attachment.image', { attachment: { attachmentId: 'att_png_1', mediaType: 'image/png', bytes: 8, width: 2, height: 2 } })
+  assert.equal(result.attachment.attachmentId, 'att_png_1')
+  assert.equal(Buffer.from(result.data, 'base64').byteLength, 8)
+})
+
+test('mirrored user images are localized into the local attachment store', async () => {
+  const { host } = makeMirrorHost()
+  const attachments = makeAttachments()
+  const saved = []
+  attachments.saveImage = async (input) => {
+    saved.push(input)
+    return { attachmentId: 'local_att_1', mediaType: input.mediaType, bytes: input.data.byteLength, width: 2, height: 2 }
+  }
+  const session = makeFakeSession('session-mirror')
+  const original = host.service.bind(host)
+  host.service = (key) => (key === 'attachments' ? attachments : key === 'sessions' ? { get: () => session } : original(key))
+  host.remoteCall = async (_peerId, method) => {
+    if (method === 'attachment.image') {
+      return { attachment: { attachmentId: 'att_png_1', mediaType: 'image/png', bytes: 8, width: 2, height: 2 }, data: Buffer.from([1, 2, 3, 4]).toString('base64') }
+    }
+    return {}
+  }
+  const entry = host.mirrors.devices.dev_peer.sessions['session-remote']
+  entry.pendingUserTexts = []
+  await host.enqueueMirrorAppend(entry, 'dev_peer', [{
+    kind: 'user',
+    seq: 4,
+    time: 4,
+    text: '',
+    images: [{ attachmentId: 'att_png_1', mediaType: 'image/png', bytes: 8, width: 2, height: 2 }],
+  }])
+  const message = session.events.find((event) => event.type === 'user/message')
+  assert.equal(message.data.content[0].type, 'image')
+  assert.equal(message.data.content[0].attachment.attachmentId, 'local_att_1')
+  assert.equal(saved.length, 1)
+  // The second encounter reuses the cached local reference.
+  await host.enqueueMirrorAppend(entry, 'dev_peer', [{
+    kind: 'user',
+    seq: 5,
+    time: 5,
+    text: '',
+    images: [{ attachmentId: 'att_png_1', mediaType: 'image/png', bytes: 8, width: 2, height: 2 }],
+  }])
+  assert.equal(saved.length, 1)
+})
+
+test('an unlocalizable remote image keeps a readable placeholder', async () => {
+  const { host } = makeMirrorHost()
+  const session = makeFakeSession('session-mirror')
+  host.service = (key) => (key === 'sessions' ? { get: () => session } : undefined)
+  const entry = host.mirrors.devices.dev_peer.sessions['session-remote']
+  entry.pendingUserTexts = []
+  await host.enqueueMirrorAppend(entry, 'dev_peer', [{
+    kind: 'user',
+    seq: 6,
+    time: 6,
+    text: '',
+    images: [{ attachmentId: 'att_remote', mediaType: 'image/png', bytes: 4, width: 1, height: 1 }],
+  }])
+  const message = session.events.find((event) => event.type === 'user/message')
+  assert.equal(message.data.content[0].type, 'text')
+  assert.equal(message.data.content[0].text, '[图片 ×1]')
+})
