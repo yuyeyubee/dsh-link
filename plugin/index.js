@@ -116,6 +116,8 @@ const MIRROR_STORE_VERSION = 2
 const MIRROR_SYNC_INTERVAL_MS = 60_000
 /** How long one archive reconcile waits for a peer's archive baseline. */
 const ARCHIVE_SNAPSHOT_TIMEOUT_MS = 20_000
+/** Deadline for replaying one local mirror log while checking its format. */
+const MIRROR_LOG_CHECK_TIMEOUT_MS = 20_000
 /** Backoff before retrying one mirror whose archive direction did not apply. */
 const ARCHIVE_RETRY_MS = 15_000
 /** Reconnect backoff bounds, in milliseconds. */
@@ -2008,6 +2010,13 @@ class LinkHost {
         if (typeof mapping?.localWorkspaceId !== 'string') continue
         const workspace = registry.get(mapping.localWorkspaceId)
         if (workspace !== undefined) await workspace.attachSession(entry.localId).catch(() => {})
+        // A mirror written by an older writer can carry a tool/call that no
+        // assistant message advertised; such a log fails every replay, so hide
+        // the row and rebuild it from the remote once the peer is reachable.
+        if (entry.logValid !== true && (await this.mirrorLogCorrupt(entry.localId))) {
+          entry.needsRebuild = true
+          await registry.archiveSession(entry.localId, { stopActivity: true }).catch(() => {})
+        }
       }
     }
     const root = join(dataDir(), 'mirrors')
@@ -2023,6 +2032,59 @@ class LinkHost {
       if (this.mirrorForLocal(item.sessionId) !== undefined) continue
       await registry.archiveSession(item.sessionId, { stopActivity: true }).catch(() => {})
     }
+  }
+
+  /**
+   * Whether one local mirror Session log cannot be replayed.
+   *
+   * Only a format violation counts: the row can be rebuilt from the remote
+   * Session, while a missing or merely unreadable file is a different problem.
+   */
+  async mirrorLogCorrupt(localSessionId) {
+    const sessions = this.service('sessions')
+    if (sessions === undefined) return false
+    try {
+      await sessions.events({ address: { kind: 'session', sessionId: localSessionId }, maxMessages: 1 }, AbortSignal.timeout(MIRROR_LOG_CHECK_TIMEOUT_MS))
+      return false
+    } catch (error) {
+      return /is corrupt|SessionFormatError/i.test(errorMessage(error))
+    }
+  }
+
+  /**
+   * Rebuild every mirror whose log violates the Session format.
+   *
+   * Mirrors are derived data, so the remote Session is the source of truth:
+   * a fresh local id replays the remote history through the current writer.
+   */
+  async rebuildCorruptMirrors() {
+    const rebuilt = []
+    const failed = []
+    for (const [deviceId, device] of Object.entries(this.mirrors.devices ?? {})) {
+      for (const [remoteSessionId, entry] of Object.entries(device.sessions ?? {})) {
+        if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string') continue
+        if (entry.logValid === true) continue
+        if (!(await this.mirrorLogCorrupt(entry.localId))) {
+          entry.logValid = true
+          continue
+        }
+        try {
+          if (await this.rebuildMirrorSession(deviceId, device, remoteSessionId, entry)) {
+            entry.logValid = true
+            delete entry.needsRebuild
+            rebuilt.push(entry.localId)
+          } else {
+            entry.needsRebuild = true
+            failed.push(entry.localId)
+          }
+        } catch (error) {
+          entry.needsRebuild = true
+          failed.push(`${entry.localId}: ${errorMessage(error)}`)
+        }
+      }
+    }
+    this.saveMirrorStore()
+    return { rebuilt, failed }
   }
 
   /** Hide projected Workspaces of peers that are no longer online. */
@@ -2256,6 +2318,9 @@ class LinkHost {
         }
       }
       await this.pruneOfflinePeerWorkspaces()
+      await this.rebuildCorruptMirrors().catch((error) => {
+        this.log('warn', `dsh-link: mirror rebuild: ${errorMessage(error)}`)
+      })
       this.saveMirrorStore()
     } finally {
       this.mirrorSyncing = false
@@ -2536,20 +2601,38 @@ class LinkHost {
             step: coordinates.step,
           }
         } else if (record.kind === 'tool-call') {
+          const callId = typeof record.callId === 'string' ? record.callId : ''
+          // A Session log only accepts a tool/call that an assistant message has
+          // already advertised with a matching tool-call block; otherwise the
+          // whole log is rejected as corrupt the next time it is replayed.
+          if (callId.length === 0) continue
+          const toolName = record.name || 'tool'
+          const toolArguments = record.args || '{}'
+          session.append('assistant/message', {
+            turn: coordinates.turn,
+            step: coordinates.step,
+            message: {
+              id: randomUUID(),
+              role: 'assistant',
+              content: [{ type: 'tool-call', id: callId, name: toolName, arguments: toolArguments }],
+              source: { kind: 'model', provider: 'dsh-link', model: 'remote' },
+            },
+            stream: [],
+          }, { surfaceOp: 'append' })
           const call = session.append('tool/call', {
             turn: coordinates.turn,
             step: coordinates.step,
-            callId: record.callId,
-            name: record.name || 'tool',
-            arguments: record.args || '{}',
+            callId,
+            name: toolName,
+            arguments: toolArguments,
           })
-          if (record.callId.length > 0 && Number.isFinite(call?.seq)) {
-            entry.toolCallSeqs[record.callId] = call.seq
-            const callIds = Object.keys(entry.toolCallSeqs)
-            if (callIds.length > 400) for (const old of callIds.slice(0, callIds.length - 400)) delete entry.toolCallSeqs[old]
-          }
+          entry.toolCallSeqs[callId] = call.seq
+          const callIds = Object.keys(entry.toolCallSeqs)
+          if (callIds.length > 400) for (const old of callIds.slice(0, callIds.length - 400)) delete entry.toolCallSeqs[old]
         } else if (record.kind === 'tool-result') {
-          const callSeq = record.callId.length > 0 ? entry.toolCallSeqs[record.callId] : undefined
+          const callSeq = typeof record.callId === 'string' && record.callId.length > 0 ? entry.toolCallSeqs[record.callId] : undefined
+          // Without a callId the result can never satisfy the tool lifecycle.
+          if (typeof record.callId !== 'string' || record.callId.length === 0) continue
           const message = {
             id: randomUUID(),
             role: 'tool',
