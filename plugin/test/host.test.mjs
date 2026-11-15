@@ -395,10 +395,17 @@ test('mirror records append native tool events instead of folded text', () => {
   host.appendMirrorRecords(entry, records)
   assert.deepEqual(session.events.map((event) => event.type), [
     'turn/start', 'user/message', 'step/start', 'assistant/message',
-    'tool/call', 'tool/result', 'step/end', 'turn/end',
+    'assistant/message', 'tool/call', 'tool/result', 'step/end', 'turn/end',
   ])
   const call = session.events.find((event) => event.type === 'tool/call')
   assert.deepEqual(call.data, { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"ls"}' })
+  // The log only replays when an assistant message advertises the call first.
+  const advertisementIndex = session.events.findIndex((event) => event.type === 'assistant/message'
+    && event.data.message.content.some((block) => block.type === 'tool-call' && block.id === 'c1'))
+  assert.ok(advertisementIndex >= 0 && advertisementIndex < session.events.indexOf(call))
+  assert.deepEqual(session.events[advertisementIndex].data.message.content, [
+    { type: 'tool-call', id: 'c1', name: 'bash', arguments: '{"command":"ls"}' },
+  ])
   const result = session.events.find((event) => event.type === 'tool/result')
   assert.equal(result.data.message.role, 'tool')
   assert.equal(result.data.message.source.callId, 'c1')
@@ -972,7 +979,8 @@ test('mirror keeps native tool events for older records without turn/step', () =
     { kind: 'turn-end', seq: 5, time: 5, turn: 1, reason: 'completed' },
   ])
   assert.deepEqual(session.events.map((event) => event.type), [
-    'turn/start', 'step/start', 'assistant/message', 'tool/call', 'tool/result', 'step/end', 'turn/end',
+    'turn/start', 'step/start', 'assistant/message', 'assistant/message',
+    'tool/call', 'tool/result', 'step/end', 'turn/end',
   ])
   assert.equal(session.events.find((event) => event.type === 'tool/call').data.step, 1)
 })
