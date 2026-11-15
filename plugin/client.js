@@ -805,6 +805,13 @@ window.__ModuleLoader__.load({
       .dsh-link-native-gear:not(:disabled):hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
       .dsh-link-native-gear:focus-visible { outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 1px; }
       .dsh-link-native-gear.is-header { width: 26px; height: 26px; }
+      /* Sidebar row action: mirrors the native hover button in
+         ui-workspace Rows.module.css (.iconButton) so it lines up with the
+         archive button beside it: 24px hit area, negative margin that keeps the
+         32px row rhythm, radius-xs and a colour-only hover. */
+      .dsh-link-native-gear.is-row { width: 24px; height: 24px; margin: -4px; border-radius: var(--dsw-radius-xs); }
+      @media (hover: hover) { .dsh-link-native-gear.is-row:not(:disabled):hover { background: transparent; color: var(--dsw-alias-label-primary); } }
+      .dsh-link-native-gear.is-row:focus-visible { outline-offset: -2px; }
       .dsh-link-tabbar { flex: none; display: flex; align-items: center; gap: 6px; padding: 7px 12px; border-bottom: .5px solid var(--dsw-alias-border-l3); background: var(--dsw-alias-bg-layer-1); }
       html[data-platform="darwin"] .dsh-link-tabbar { padding-top: calc(5px + var(--dsh-frame-top-clearance, 0px)); }
       .dsh-link-tablist { flex: 1; min-width: 0; display: flex; align-items: center; gap: 3px; overflow-x: auto; scrollbar-width: none; }
@@ -1284,7 +1291,7 @@ window.__ModuleLoader__.load({
         if (mirror === undefined) return null
         return React.createElement('button', {
           type: 'button',
-          className: 'dsh-link-native-gear',
+          className: 'dsh-link-native-gear is-row',
           title: t('remoteSettings.open'),
           'aria-label': t('remoteSettings.open'),
           onClick: (event) => {
@@ -1292,7 +1299,7 @@ window.__ModuleLoader__.load({
             openRemoteSettings({ ...mirror, localSessionId: sessionId })
           },
           onPointerDown: (event) => event.stopPropagation(),
-        }, React.createElement(SettingsGlyph, { size: 13 }))
+        }, React.createElement(SettingsGlyph, { size: 14 }))
       }
     }
 
