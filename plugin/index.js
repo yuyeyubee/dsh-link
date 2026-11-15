@@ -34,7 +34,7 @@ export const name = 'dsh-link'
 export const inject = ['tools', 'systemPrompt', 'credentials']
 
 /** Version reported to peers and the Web UI. */
-const VERSION = '1.2.1'
+const VERSION = '1.3.0'
 /** On-disk config document version. */
 const CONFIG_VERSION = 1
 /** Same-origin API route used by the Client half. */
@@ -53,11 +53,61 @@ const RPC_TIMEOUT_MS = 30_000
 const SPEECH_TIMEOUT_MS = 180_000
 /** Session follow snapshot size. */
 const FOLLOW_MAX_MESSAGES = 30
+/** Fallback image admission caps when the attachment service is unavailable. */
+const MAX_PROMPT_IMAGES = 8
+const MAX_PROMPT_IMAGE_BYTES = 8 * 1024 * 1024
+/** How long a forwarded remote question stays open for a peer answer. */
+const QUESTION_TIMEOUT_MS = 10 * 60_000
+/** Best-effort cancellation deadline for losing question peers. */
+const QUESTION_CANCEL_TIMEOUT_MS = 5_000
 /** Text caps that keep relay frames bounded. */
 const MAX_TEXT = 8 * 1024
-const MAX_ARGS = 4 * 1024
-const MAX_TOOL_TEXT = 2 * 1024
+/**
+ * Tool arguments and results are mirrored verbatim so native tool views that
+ * parse them (todo board, plan summary, team tasks) still render. These caps
+ * only stop a pathological payload from flooding the relay.
+ */
+const MAX_ARGS = 64 * 1024
+const MAX_TOOL_TEXT = 64 * 1024
 const MAX_REASONING = 4 * 1024
+/** Per-event cap for verbatim rich Session events mirrored to peers. */
+const MAX_EVENT_BYTES = 32 * 1024
+
+/**
+ * Session events mirrored verbatim, so the local Session log carries the same
+ * durable facts the remote one does and native projections render (goal bar,
+ * plan chip, task board, team roster, approval cards, titles, model chips).
+ * Deliberately excluded: model requests (`request/header`), raw LLM retry
+ * bookkeeping, and anything whose payload is not self-contained.
+ */
+const MIRROR_EVENT_TYPES = new Set([
+  'agent-preset/selected',
+  'approval/asked',
+  'approval/decided',
+  'approval/policy',
+  'command/done',
+  'command/run',
+  'compaction/end',
+  'compaction/start',
+  'compaction/summary',
+  'goal/change',
+  'job/registered',
+  'job/settled',
+  'model/selection',
+  'permission/preset',
+  'plan/mode',
+  'sandbox/mode',
+  'schedule/change',
+  'session/title',
+  'subagent/catalog',
+  'subagent/descriptor',
+  'team/member',
+  'team/mode',
+  'team/task',
+  'todo/write',
+  'working-directory/change',
+  'workspace/changes',
+])
 /** How many recent remote Sessions are mirrored into one device workspace. */
 const MAX_MIRROR_SESSIONS = 10
 /** Mirror mapping format; v2 groups remote projects as separate workspaces. */
@@ -256,6 +306,44 @@ function extractUserMessageText(messages) {
   return parts.join('\n\n').trim()
 }
 
+/** Describe the image attachment refs of one content block list. */
+function imagesOfContent(content) {
+  const images = []
+  if (!Array.isArray(content)) return images
+  for (const block of content) {
+    if (block === null || typeof block !== 'object' || block.type !== 'image') continue
+    const attachment = block.attachment
+    if (attachment === null || typeof attachment !== 'object') continue
+    if (typeof attachment.attachmentId !== 'string' || attachment.attachmentId.length === 0) continue
+    images.push({
+      attachmentId: attachment.attachmentId,
+      mediaType: typeof attachment.mediaType === 'string' ? attachment.mediaType : '',
+      bytes: Number.isFinite(attachment.bytes) ? attachment.bytes : 0,
+      width: Number.isFinite(attachment.width) ? attachment.width : 0,
+      height: Number.isFinite(attachment.height) ? attachment.height : 0,
+      ...(typeof attachment.name === 'string' ? { name: attachment.name } : {}),
+    })
+  }
+  return images
+}
+
+/** Collect the image attachment refs of a list of user messages, in order. */
+function extractUserMessageImages(messages) {
+  const parts = []
+  if (!Array.isArray(messages)) return parts
+  for (const message of messages) {
+    const content = Array.isArray(message?.content) ? message.content : []
+    for (const block of content) {
+      if (block === null || typeof block !== 'object' || block.type !== 'image') continue
+      const attachment = block.attachment
+      if (attachment === null || typeof attachment !== 'object') continue
+      if (typeof attachment.attachmentId !== 'string' || attachment.attachmentId.length === 0) continue
+      parts.push(attachment)
+    }
+  }
+  return parts
+}
+
 /** Map one DSH wire event to a protocol ChatRecord, or undefined when ignored. */
 export function mapWireEvent(wire) {
   if (wire === null || typeof wire !== 'object') return undefined
@@ -268,8 +356,9 @@ export function mapWireEvent(wire) {
       const sourceKind = data.source !== null && typeof data.source === 'object' ? data.source.kind : undefined
       if (typeof sourceKind === 'string' && sourceKind !== 'user') return undefined
       const text = textOfMessage(data)
-      if (text.length === 0) return undefined
-      return { kind: 'user', seq, time, text: truncate(text, MAX_TEXT) }
+      const images = imagesOfContent(data.content)
+      if (text.length === 0 && images.length === 0) return undefined
+      return { kind: 'user', seq, time, text: truncate(text, MAX_TEXT), ...(images.length === 0 ? {} : { images }) }
     }
     case 'assistant/message': {
       const message = data.message
@@ -334,8 +423,19 @@ export function mapWireEvent(wire) {
         : 'unknown'
       return { kind: 'turn-end', seq, time, turn: Number.isFinite(data.turn) ? data.turn : 0, reason }
     }
-    default:
-      return undefined
+    default: {
+      if (!MIRROR_EVENT_TYPES.has(type)) return undefined
+      // Rich events travel as bounded JSON text: the exact durable payload the
+      // remote log holds, so a native projection on this side sees the same facts.
+      let encoded = ''
+      try {
+        encoded = JSON.stringify(data ?? null)
+      } catch {
+        return undefined
+      }
+      if (encoded.length > MAX_EVENT_BYTES) return undefined
+      return { kind: 'event', seq, time, type, data: encoded }
+    }
   }
 }
 
@@ -746,6 +846,12 @@ class LinkHost {
     this.archiveSyncing = false
     this.mirrorArchiveStates = new Map()
     this.mirrorModelStates = new Map()
+    /** In-memory live status per mirror Session id: running/queue/question facts. */
+    this.mirrorLive = new Map()
+    /** Open remote questions awaiting an answer from this host's peers. */
+    this.questionWaits = new Map()
+    /** Question requests this host received from a peer, awaiting a local answer. */
+    this.incomingQuestions = new Map()
     this.lastArchiveError = null
   }
 
@@ -1099,6 +1205,234 @@ class LinkHost {
     return items
   }
 
+  /* ------------------------------- live status ---------------------------- */
+
+  /** Live status record of one mirror Session, created on first use. */
+  mirrorLiveOf(localSessionId) {
+    let live = this.mirrorLive.get(localSessionId)
+    if (live === undefined) {
+      live = { running: false, queueCount: 0, questionId: '', questionCount: 0, lastReason: '', settledAt: 0 }
+      this.mirrorLive.set(localSessionId, live)
+    }
+    return live
+  }
+
+  /** Patch one mirror's live status and keep the map bounded. */
+  touchMirrorLive(localSessionId, patch) {
+    if (typeof localSessionId !== 'string' || localSessionId.length === 0) return
+    const live = this.mirrorLiveOf(localSessionId)
+    Object.assign(live, patch)
+    live.updatedAt = Date.now()
+    if (this.mirrorLive.size > 400) {
+      const oldest = [...this.mirrorLive.entries()]
+        .sort((left, right) => (left[1].updatedAt ?? 0) - (right[1].updatedAt ?? 0))
+        .slice(0, this.mirrorLive.size - 400)
+      for (const [key] of oldest) this.mirrorLive.delete(key)
+    }
+  }
+
+  /** Fold one observed remote Session state into a mirror's live status. */
+  applyMirrorState(localSessionId, state) {
+    if (state === null || typeof state !== 'object') return
+    const patch = {}
+    if (state.running === true || state.running === false) patch.running = state.running
+    if (Number.isFinite(state.queueCount)) patch.queueCount = state.queueCount
+    const pending = Array.isArray(state.pendingInput) ? state.pendingInput.filter((item) => typeof item === 'string') : []
+    if (pending.length > 0) patch.pendingInput = pending
+    this.touchMirrorLive(localSessionId, patch)
+  }
+
+  /** Mark one mirror Turn as settled so the row can show a done or error dot. */
+  markMirrorTurnSettled(entry, reason) {
+    const patch = { running: false, settleReason: reason === 'error' ? 'error' : reason === 'aborted' ? 'aborted' : 'completed', settledAt: Date.now() }
+    const live = this.mirrorLive.get(entry.localId)
+    if (live !== undefined && live.questionId !== '') patch.questionId = ''
+    this.touchMirrorLive(entry.localId, patch)
+  }
+
+  /** Live status list the sidebar polls; absent mirrors are idle. */
+  mirrorStatusList() {
+    const byLocal = new Map()
+    for (const [deviceId, device] of Object.entries(this.mirrors.devices ?? {})) {
+      for (const [remoteSessionId, entry] of Object.entries(device.sessions ?? {})) {
+        byLocal.set(entry.localId, { deviceId, deviceName: device.name ?? '', remoteSessionId })
+      }
+    }
+    const items = []
+    for (const [localSessionId, live] of this.mirrorLive) {
+      const owner = byLocal.get(localSessionId)
+      if (owner === undefined) continue
+      items.push({
+        localSessionId,
+        deviceId: owner.deviceId,
+        remoteSessionId: owner.remoteSessionId,
+        running: live.running === true,
+        queueCount: Number.isFinite(live.queueCount) ? live.queueCount : 0,
+        settleReason: typeof live.settleReason === 'string' ? live.settleReason : '',
+        settledAt: Number.isFinite(live.settledAt) ? live.settledAt : 0,
+        questionId: typeof live.questionId === 'string' ? live.questionId : '',
+        questionCount: Number.isFinite(live.questionCount) ? live.questionCount : 0,
+      })
+    }
+    return items
+  }
+
+  /* --------------------------- remote questions ---------------------------- */
+
+  /**
+   * Waterfall answerer for `user-questions/request`. A question asked on this
+   * computer is offered to every online peer; the first peer answer wins, so a
+   * remote user can answer a question the local UI is also able to answer.
+   * Everything that cannot be answered here delegates with `next()`.
+   */
+  async handlePeerQuestion(request, next) {
+    if (this.relay === undefined || this.relay.state !== 'connected' || this.peers.length === 0) return next()
+    const agent = request?.agent
+    const sessionId = agent?.session?.id ?? agent?.session?.header?.id
+    const callId = request?.wait?.callId
+    const questions = Array.isArray(request?.questions) ? request.questions : []
+    if (typeof sessionId !== 'string' || sessionId.length === 0) return next()
+    if (typeof callId !== 'string' || callId.length === 0 || questions.length === 0) return next()
+    const answers = await this.offerQuestion({
+      questionId: `${sessionId}:${callId}`,
+      sessionId,
+      callId,
+      questions,
+      timed: request?.wait?.timed === true,
+      signal: request?.signal,
+    }).catch(() => undefined)
+    if (answers === undefined) return next()
+    return { answers }
+  }
+
+  /** Offer one question to every peer and resolve the first accepted answer. */
+  async offerQuestion(question) {
+    const peers = [...this.peers]
+    if (peers.length === 0 || this.relay === undefined) return undefined
+    const attempts = peers.map((peer) => this.remoteCall(peer.id, 'session.question', {
+      questionId: question.questionId,
+      sessionId: question.sessionId,
+      callId: question.callId,
+      questions: question.questions,
+      timed: question.timed,
+    }, QUESTION_TIMEOUT_MS).then((result) => ({ peer, result })).catch(() => undefined))
+    const answered = await this.raceFirstAnswer(attempts, question.signal)
+    if (answered === undefined) return undefined
+    // Every other peer still holds the question open; cancel it so their row
+    // stops offering an answer the remote Agent already received.
+    for (const peer of peers) {
+      if (peer.id === answered.peer.id) continue
+      this.remoteCall(peer.id, 'session.questionCancel', { questionId: question.questionId }, QUESTION_CANCEL_TIMEOUT_MS).catch(() => {})
+    }
+    const result = answered.result
+    return result !== null && typeof result === 'object' && Array.isArray(result.answers) ? result.answers : undefined
+  }
+
+  /** Resolve with the first answered attempt, or undefined when all fail or the signal aborts. */
+  raceFirstAnswer(attempts, signal) {
+    return new Promise((resolve) => {
+      let settled = false
+      const finish = (value) => {
+        if (settled) return
+        settled = true
+        signal?.removeEventListener?.('abort', onAbort)
+        resolve(value)
+      }
+      const onAbort = () => finish(undefined)
+      if (signal?.aborted === true) {
+        finish(undefined)
+        return
+      }
+      signal?.addEventListener?.('abort', onAbort, { once: true })
+      for (const attempt of attempts) {
+        attempt.then((value) => finish(value), () => {})
+      }
+    })
+  }
+
+  /** Store one question a peer asked and wait for the local user's answer. */
+  handleQuestionCall(relay, rid, from, params) {
+    const questionId = typeof params?.questionId === 'string' ? params.questionId : ''
+    const remoteSessionId = typeof params?.sessionId === 'string' ? params.sessionId : ''
+    const questions = Array.isArray(params?.questions) ? params.questions : []
+    if (questionId.length === 0 || remoteSessionId.length === 0 || questions.length === 0) {
+      relay.send({ t: 'reply', rid, ok: false, error: { code: 'bad-request', message: '缺少 questionId/sessionId/questions' } })
+      return
+    }
+    const mirror = this.mirrorForRemote(from, remoteSessionId)
+    if (mirror === undefined) {
+      // No local row can show this question, so let the asking side fall back
+      // to its own answerers instead of holding its Agent open here.
+      relay.send({ t: 'reply', rid, ok: false, error: { code: 'unavailable', message: '本机没有该远程会话的镜像' } })
+      return
+    }
+    const localSessionId = mirror.entry.localId
+    const entry = { questionId, localSessionId, questions, resolve: undefined, timer: undefined }
+    this.touchMirrorLive(localSessionId, { questionId, questionCount: questions.length })
+    const settled = new Promise((resolve) => {
+      entry.resolve = resolve
+    })
+    this.incomingQuestions.set(questionId, entry)
+    entry.timer = setTimeout(() => {
+      if (this.incomingQuestions.get(questionId) !== entry) return
+      this.incomingQuestions.delete(questionId)
+      this.touchMirrorLive(localSessionId, { questionId: '', questionCount: 0 })
+      relay.send({ t: 'reply', rid, ok: false, error: { code: 'timeout', message: '问题等待超时' } })
+    }, QUESTION_TIMEOUT_MS)
+    settled.then((answers) => {
+      if (entry.timer !== undefined) clearTimeout(entry.timer)
+      if (answers === undefined) {
+        relay.send({ t: 'reply', rid, ok: false, error: { code: 'cancelled', message: '问题已被其他设备回答' } })
+        return
+      }
+      relay.send({ t: 'reply', rid, ok: true, result: { answers } })
+    }).catch(() => {
+      relay.send({ t: 'reply', rid, ok: false, error: { code: 'internal', message: '问题回答失败' } })
+    })
+  }
+
+  /** Drop one peer question because another peer already answered it. */
+  cancelQuestion(questionId) {
+    const entry = this.incomingQuestions.get(questionId)
+    if (entry === undefined) return false
+    this.incomingQuestions.delete(questionId)
+    if (entry.timer !== undefined) clearTimeout(entry.timer)
+    this.touchMirrorLive(entry.localSessionId, { questionId: '', questionCount: 0 })
+    entry.resolve?.(undefined)
+    return true
+  }
+
+  /** The pending question of one local mirror Session, if any. */
+  mirrorQuestion(localSessionId) {
+    if (typeof localSessionId !== 'string' || localSessionId.length === 0) return undefined
+    for (const entry of this.incomingQuestions.values()) {
+      if (entry.localSessionId !== localSessionId) continue
+      return { questionId: entry.questionId, sessionId: localSessionId, questions: entry.questions }
+    }
+    return undefined
+  }
+
+  /** Answer one pending peer question with the local user's batch. */
+  answerMirrorQuestion(localSessionId, answers) {
+    const question = this.mirrorQuestion(localSessionId)
+    if (question === undefined) throw new LinkError('not-found', '没有待回答的问题')
+    if (!Array.isArray(answers) || answers.length === 0) throw new LinkError('bad-request', '缺少答案')
+    const normalized = answers.map((item) => {
+      if (item === null || typeof item !== 'object') throw new LinkError('bad-request', '答案格式不正确')
+      const id = typeof item.id === 'string' ? item.id : ''
+      if (id.length === 0) throw new LinkError('bad-request', '答案缺少问题 id')
+      const selected = Array.isArray(item.selected) ? item.selected.filter((value) => typeof value === 'string') : []
+      const custom = typeof item.custom === 'string' && item.custom.trim().length > 0 ? item.custom : undefined
+      return { id, selected, ...(custom === undefined ? {} : { custom }) }
+    })
+    const entry = this.incomingQuestions.get(question.questionId)
+    if (entry === undefined) throw new LinkError('not-found', '这个问题已经结束')
+    this.incomingQuestions.delete(question.questionId)
+    this.touchMirrorLive(localSessionId, { questionId: '', questionCount: 0 })
+    entry.resolve?.(normalized)
+    return { answered: true }
+  }
+
   /** Save a pairing code from the settings page. */
   async savePairing(pairingCode, deviceName) {
     const pairing = parsePairingCode(pairingCode)
@@ -1296,19 +1630,52 @@ class LinkHost {
     return { sessionId: result.sessionId }
   }
 
-  /** Admit one prompt. */
+  /** Admit one prompt, with any images a peer uploaded alongside it. */
   async sessionPrompt(params, signal) {
     const sessionId = this.requireSessionId(params?.sessionId)
     const text = typeof params?.text === 'string' ? params.text : ''
-    if (text.trim().length === 0) throw new LinkError('bad-request', '消息内容不能为空')
+    const content = []
+    if (text.trim().length > 0) content.push({ type: 'text', text: text.slice(0, 200_000) })
+    const images = this.admitPromptImages(params?.content)
+    content.push(...images)
+    if (content.length === 0) throw new LinkError('bad-request', '消息内容不能为空')
     const mode = params?.mode === 'steer' ? 'steer' : 'queue'
     await this.requireSessions().prompt({
       requestId: randomUUID(),
       sessionId,
       mode,
-      content: [{ type: 'text', text: text.slice(0, 200_000) }],
+      content,
     }, signal ?? AbortSignal.timeout(RPC_TIMEOUT_MS))
     return { accepted: true }
+  }
+
+  /** Validate the image upload parts of one peer prompt against local limits. */
+  admitPromptImages(parts) {
+    if (!Array.isArray(parts)) return []
+    const images = parts.filter((part) => part !== null && typeof part === 'object' && part.type === 'image')
+    if (images.length === 0) return []
+    const limits = this.service('attachments')?.imageLimits
+    const mediaTypes = Array.isArray(limits?.mediaTypes) && limits.mediaTypes.length > 0
+      ? new Set(limits.mediaTypes)
+      : new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+    const maxImages = Number.isFinite(limits?.maxImagesPerMessage) ? limits.maxImagesPerMessage : MAX_PROMPT_IMAGES
+    const maxBytes = Number.isFinite(limits?.maxImageBytes) ? limits.maxImageBytes : MAX_PROMPT_IMAGE_BYTES
+    let total = 0
+    const out = []
+    for (const image of images) {
+      const mediaType = typeof image.mediaType === 'string' ? image.mediaType : ''
+      if (!mediaTypes.has(mediaType)) throw new LinkError('bad-request', '不支持的图片格式')
+      const data = typeof image.data === 'string' ? image.data : ''
+      if (data.length === 0) throw new LinkError('bad-request', '图片内容为空')
+      const bytes = Buffer.byteLength(data, 'base64')
+      if (bytes > maxBytes) throw new LinkError('bad-request', '图片超过大小限制')
+      total += bytes
+      if (out.length >= maxImages) throw new LinkError('bad-request', '图片数量超过限制')
+      out.push({ type: 'image', mediaType, data, ...(typeof image.name === 'string' && image.name.length > 0 ? { name: image.name.slice(0, 200) } : {}) })
+    }
+    const totalCap = Number.isFinite(limits?.maxMessageImageBytes) ? limits.maxMessageImageBytes : maxBytes * 4
+    if (total > totalCap) throw new LinkError('bad-request', '图片总量超过限制')
+    return out
   }
 
   /** Cancel an active turn. */
@@ -2011,8 +2378,12 @@ class LinkHost {
     for (const record of records) {
       try {
         if (record.kind === 'user') {
-          const text = typeof record.text === 'string' ? record.text : ''
-          const pendingIndex = pending.findIndex((item) => item === text)
+          const raw = typeof record.text === 'string' ? record.text : ''
+          const imageCount = Array.isArray(record.images) ? record.images.length : 0
+          // The peer's attachment bytes are not part of the record stream; keep a
+          // readable placeholder so an image-only message still shows up.
+          const text = raw.length > 0 ? raw : imageCount > 0 ? `[图片 ×${imageCount}]` : ''
+          const pendingIndex = pending.findIndex((item) => item === text || (item.length === 0 && raw.length === 0))
           if (pendingIndex >= 0) {
             pending.splice(pendingIndex, 1)
             appended.push(record)
@@ -2037,6 +2408,27 @@ class LinkHost {
         if (record.kind === 'turn-end') {
           const reason = record.reason === 'completed' ? 'completed' : record.reason === 'aborted' ? 'aborted' : record.reason === 'error' ? 'error' : 'completed'
           this.closeMirrorTurn(session, cursor, reason)
+          this.markMirrorTurnSettled(entry, reason)
+          appended.push(record)
+          continue
+        }
+        if (record.kind === 'event') {
+          const type = typeof record.type === 'string' ? record.type : ''
+          if (!MIRROR_EVENT_TYPES.has(type)) {
+            appended.push(record)
+            continue
+          }
+          let payload
+          try {
+            payload = typeof record.data === 'string' ? JSON.parse(record.data) : record.data
+          } catch {
+            payload = undefined
+          }
+          if (payload !== null && typeof payload === 'object' && !Array.isArray(payload)) {
+            // Rich events are log facts, not Turn content: appending them keeps
+            // native projections (goal, plan, todo, team, approval) in step.
+            session.append(type, payload)
+          }
           appended.push(record)
           continue
         }
@@ -2287,6 +2679,8 @@ class LinkHost {
           } else if (data.t === 'title' && typeof data.title === 'string' && data.title.length > 0) {
             const session = this.service('sessions')?.get(localSessionId)
             if (session !== undefined) void this.renameMirror(session, entry, data.title)
+          } else if (data.t === 'state') {
+            this.applyMirrorState(localSessionId, data.state)
           } else if (data.t === 'error') {
             this.log('warn', `dsh-link: mirror stream error: ${data.message ?? data.code ?? 'unknown'}`)
           }
@@ -2316,26 +2710,79 @@ class LinkHost {
     }
   }
 
+  /** Choose how a forwarded prompt enters the remote Agent. */
+  async mirrorPromptMode(deviceId, remoteSessionId) {
+    try {
+      const state = await this.remoteCall(deviceId, 'session.state', { sessionId: remoteSessionId }, 8_000)
+      return state?.running === true ? 'steer' : 'queue'
+    } catch {
+      return 'queue'
+    }
+  }
+
+  /**
+   * Encode locally stored images as prompt upload parts. Images travel as
+   * encoded bytes because the peer's attachment store is a different store; the
+   * accepting Host admits them into its own store before the message exists.
+   */
+  async promptContentWithImages(text, images, signal) {
+    const content = []
+    if (typeof text === 'string' && text.length > 0) content.push({ type: 'text', text })
+    const attachments = this.service('attachments')
+    if (attachments === undefined || !Array.isArray(images) || images.length === 0) return content
+    for (const image of images) {
+      try {
+        const stored = await attachments.readImage(image, signal)
+        content.push({
+          type: 'image',
+          mediaType: stored.ref.mediaType,
+          data: Buffer.from(stored.data).toString('base64'),
+          ...(typeof stored.ref.name === 'string' && stored.ref.name.length > 0 ? { name: stored.ref.name } : {}),
+        })
+      } catch (error) {
+        this.log('warn', `dsh-link: mirror image read: ${errorMessage(error)}`)
+      }
+    }
+    return content
+  }
+
   /** Forward a native mirror prompt to the remote Host. */
-  async forwardMirrorPrompt(localSessionId, text, selection) {
+  async forwardMirrorPrompt(localSessionId, text, selection, images = []) {
     const found = this.mirrorForLocal(localSessionId)
     if (found === undefined) throw new LinkError('not-found', '这不是远程镜像会话')
     const clean = typeof text === 'string' ? text.trim() : ''
-    if (clean.length === 0) return
+    const content = await this.promptContentWithImages(clean, images)
+    if (content.length === 0) return
     found.entry.pendingUserTexts = Array.isArray(found.entry.pendingUserTexts) ? found.entry.pendingUserTexts : []
     found.entry.pendingUserTexts.push(clean)
     this.watchMirror(localSessionId)
+    // A prompt typed while the remote Turn runs belongs to that Turn: steering
+    // it means the remote Agent sees it now instead of queuing it behind the
+    // turn, which is what the local transcript already shows.
+    const mode = await this.mirrorPromptMode(found.deviceId, found.remoteSessionId)
+    this.touchMirrorLive(localSessionId, mode === 'steer' ? { running: true } : { queueCount: (this.mirrorLiveOf(localSessionId).queueCount ?? 0) + 1 })
     // The peer-state loop only runs every few seconds; apply a just-changed
     // thinking level (or model) before the turn starts so this prompt cannot
     // run with the previous remote selection.
     await this.pushMirrorPromptSelection(localSessionId, selection)
-    await this.remoteCall(found.deviceId, 'session.prompt', { sessionId: found.remoteSessionId, text: clean }, 30_000)
+    await this.remoteCall(found.deviceId, 'session.prompt', {
+      sessionId: found.remoteSessionId,
+      text: clean,
+      mode,
+      ...(content.some((part) => part.type === 'image') ? { content } : {}),
+    }, 30_000)
   }
 
   /** Append one durable local user message for a forwarded mirror prompt. */
-  appendMirrorUserText(entry, text) {
+  appendMirrorUserText(entry, text, images = []) {
     const session = this.service('sessions')?.get(entry.localId)
-    if (session === undefined || typeof text !== 'string' || text.trim().length === 0) return
+    const content = []
+    if (typeof text === 'string' && text.trim().length > 0) content.push({ type: 'text', text })
+    for (const image of Array.isArray(images) ? images : []) {
+      if (image === null || typeof image !== 'object' || typeof image.attachmentId !== 'string') continue
+      content.push({ type: 'image', attachment: image })
+    }
+    if (session === undefined || content.length === 0) return
     const events = session.snapshotEvents()
     let turnOpen = false
     let turn = 0
@@ -2354,7 +2801,7 @@ class LinkHost {
     session.append('user/message', {
       id: randomUUID(),
       role: 'user',
-      content: [{ type: 'text', text }],
+      content,
       source: { kind: 'user' },
     }, { surfaceOp: 'append' })
   }
@@ -2364,12 +2811,13 @@ class LinkHost {
     const localSessionId = payload?.agent?.id
     const found = this.mirrorForLocal(localSessionId)
     const text = extractUserMessageText(payload?.messages)
+    const images = extractUserMessageImages(payload?.messages)
     if (found !== undefined) {
-      if (text.length > 0) {
+      if (text.length > 0 || images.length > 0) {
         if (found.entry.lastForwardedTurn !== payload.turn) {
           found.entry.lastForwardedTurn = payload.turn
-          this.appendMirrorUserText(found.entry, text)
-          void this.forwardMirrorPrompt(localSessionId, text, payload.modelSelection).catch((error) => {
+          this.appendMirrorUserText(found.entry, text, images)
+          void this.forwardMirrorPrompt(localSessionId, text, payload.modelSelection, images).catch((error) => {
             this.log('warn', `dsh-link: mirror forward failed: ${errorMessage(error)}`)
           })
         }
@@ -2650,6 +3098,9 @@ class LinkHost {
         await target.workspace.attachSession(entry.localId).catch(() => {})
       }
       const live = this.service('sessions')?.get(entry.localId)
+      // The list is the cheap, always-available source of remote activity:
+      // it keeps the row status correct even when no conversation is open.
+      this.touchMirrorLive(entry.localId, { running: item.running === true })
       if (live !== undefined) {
         await this.renameMirror(live, entry, typeof item.title === 'string' ? item.title : '')
         await this.syncMirrorHistory(peer, entry, remoteSessionId)
@@ -3252,6 +3703,18 @@ class LinkHost {
     if (relay === undefined) return
     if (method === 'session.follow') {
       await this.handleFollowCall(relay, rid, params)
+      return
+    }
+    // A question is answered by a human, so its reply is not bound by the RPC
+    // timeout: the sending peer decides how long it keeps the offer open.
+    if (method === 'session.question') {
+      this.handleQuestionCall(relay, rid, from, params)
+      return
+    }
+    if (method === 'session.questionCancel') {
+      const questionId = typeof params?.questionId === 'string' ? params.questionId : ''
+      const cancelled = this.cancelQuestion(questionId)
+      relay.send({ t: 'reply', rid, ok: true, result: { cancelled } })
       return
     }
     try {
@@ -4048,6 +4511,16 @@ async function handleApiRoute(request, host) {
         return jsonResponse(200, { ok: true, catalog: await host.requireSessions().modelCatalog() })
       case 'mirrors':
         return jsonResponse(200, { ok: true, items: host.mirrorList() })
+      case 'mirrorStatus':
+        return jsonResponse(200, { ok: true, items: host.mirrorStatusList() })
+      case 'mirrorQuestion': {
+        if (typeof body.sessionId !== 'string') return jsonResponse(400, { ok: false, error: '缺少 sessionId' })
+        return jsonResponse(200, { ok: true, question: host.mirrorQuestion(body.sessionId) ?? null })
+      }
+      case 'answerQuestion': {
+        if (typeof body.sessionId !== 'string') return jsonResponse(400, { ok: false, error: '缺少 sessionId' })
+        return jsonResponse(200, { ok: true, ...host.answerMirrorQuestion(body.sessionId, body.answers) })
+      }
       case 'watch': {
         if (typeof body.sessionId !== 'string') return jsonResponse(400, { ok: false, error: '缺少 sessionId' })
         return jsonResponse(200, { ok: true, ...host.watchMirror(body.sessionId) })
@@ -4206,6 +4679,11 @@ export function apply(ctx) {
       for (const dispose of disposers) dispose()
     }
   }, 'dsh-link: tools')
+
+  // A question asked on this computer is offered to online peers first, so a
+  // human working on another machine can answer without walking over. When no
+  // peer holds it, the request delegates to the shipped local answerers.
+  ctx.effect(() => ctx.on('user-questions/request', (request, next) => host.handlePeerQuestion(request, next)), 'dsh-link: peer questions')
 
   // Native mirror Sessions must never run their local model. Reject the step
   // before a request is built and forward the admitted prompt to the remote

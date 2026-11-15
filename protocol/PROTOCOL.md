@@ -166,7 +166,7 @@ relay 向被调方发 `{ "t":"unsub", "rid":"r7" }`，被调方必须中止对�
 ```json
 {
   "deviceId": "dev_xxx", "name": "家里的 MacBook", "platform": "macos",
-  "version": "1.2.1", "dshVersion": "0.2.2-rc.1", "time": 1762531200000,
+  "version": "1.3.0", "dshVersion": "0.2.2-rc.1", "time": 1762531200000,
   "workspaceDefault": "/Users/me/project", "workspaceCount": 3,
   "capabilities": ["sessions", "speech"],
   "speech": { "available": true, "providers": ["sensevoice-local"], "language": "zh" }
@@ -183,7 +183,7 @@ relay 向被调方发 `{ "t":"unsub", "rid":"r7" }`，被调方必须中止对�
 | `workspace.delete` | `{ "workspaceId" }` | `{ "deleted": true }` |
 | `session.list` | `{}` | `{ "items": [ SessionSummaryView ] }` |
 | `session.create` | `{ "workspaceId"?, "cwd"?, "agentPreset"? }` | `{ "sessionId" }` |
-| `session.prompt` | `{ "sessionId", "text", "mode"?: "queue"\|"steer" }` | `{ "accepted": true }` |
+| `session.prompt` | `{ "sessionId", "text"?, "content"?: [ { "type":"text","text" } \| { "type":"image","mediaType","data","name"? } ], "mode"?: "queue"\|"steer" }` | `{ "accepted": true }` |
 | `session.cancel` | `{ "sessionId" }` | `{ "accepted": true }` |
 | `session.rename` | `{ "sessionId", "title" }` | `{ "title" }` |
 | `session.info` | `{ "sessionId" }` | `{ "sessionId", "title", "cwd", "modelSelection"?, "agentPreset"? }` |
@@ -226,20 +226,36 @@ relay 向被调方发 `{ "t":"unsub", "rid":"r7" }`，被调方必须中止对�
 Host 把 DSH 会话事件映射为下表的记录；**只读**，不改变本地会话：
 
 ```json
-{ "kind": "user",    "seq": 12, "time": 1762531200000, "text": "帮我看看构建" }
+{ "kind": "user",    "seq": 12, "time": 1762531200000, "text": "帮我看看构建",
+  "images": [ { "attachmentId": "att_x", "mediaType": "image/png", "bytes": 8123, "width": 800, "height": 600, "name": "shot.png" } ] }
 { "kind": "assistant","seq": 15, "time": 1762531201000, "turn": 1, "step": 1, "text": "好的，我先…", "reasoning": "…" }
 { "kind": "tool-call","seq": 16, "time": 1762531202000, "turn": 1, "step": 1, "callId": "call_1", "name": "bash", "args": "{\"command\":\"ls\"}" }
 { "kind": "tool-result","seq": 17, "time": 1762531203000, "turn": 1, "step": 1, "callId": "call_1", "name": "bash", "isError": false, "text": "a.txt\nb.txt" }
 { "kind": "turn-start","seq": 10, "time": 1762531199000, "turn": 1 }
 { "kind": "turn-end", "seq": 20, "time": 1762531210000, "turn": 1, "reason": "completed" }
 { "kind": "error",    "seq": 21, "time": 1762531211000, "message": "…" }
+{ "kind": "event",    "seq": 22, "time": 1762531212000, "type": "todo/write",
+  "data": "{\"todos\":[…]}" }
 ```
+
+`event` 是**富事件透传**：Host 把下列事件的原始 `data` 序列化为 JSON 文本下发，接收端按同名事件
+追加到本地会话日志，从而让原生投影（目标条、计划状态、任务看板、团队看板、审批卡、标题、模型标记）
+在本机同样渲染：
+
+`agent-preset/selected`、`approval/asked`、`approval/decided`、`approval/policy`、`command/done`、
+`command/run`、`compaction/end`、`compaction/start`、`compaction/summary`、`goal/change`、
+`job/registered`、`job/settled`、`model/selection`、`permission/preset`、`plan/mode`、`sandbox/mode`、
+`schedule/change`、`session/title`、`subagent/catalog`、`subagent/descriptor`、`team/member`、
+`team/mode`、`team/task`、`todo/write`、`working-directory/change`、`workspace/changes`。
+
+模型请求（`request/header` 等）与 LLM 重试记账不透传：它们只在发起请求的那台电脑上有意义。
 
 规则：
 
 - `user` 来自 `user/message` 的文本块；`assistant` 来自 `assistant/message` 的文本块，`reasoning` 为其 reasoning 块（可缺省）。
 - `assistant` / `tool-call` / `tool-result` 携带源事件的 `turn`、`step`，接收端可据此把工具调用还原成原生工具卡片（而不是折叠成一段文本）。
-- 富内容（图片/文件/工具块）不传输，只保留文本；截断上限：用户/助手 `text` 8 KiB、`reasoning` 4 KiB、工具 `args` 4 KiB、工具结果 `text` 2 KiB。
+- 用户消息可带 `images`（远程附件引用）；图片字节本身不随记录传输，需要通过 `session.prompt` 的图片上传来提供。
+- 工具 `args` 与工具结果 `text` 按原文传输（上限 64 KiB），因为原生工具视图（任务看板、计划摘要）需要解析完整 JSON；`text` 上限 8 KiB、`reasoning` 4 KiB、`event.data` 32 KiB。
 - 未知事件忽略；`turn-end.reason` 用 `TurnEndReason` 的 `kind` 字符串。
 - 记录按 `seq` 升序返回。
 
@@ -274,7 +290,22 @@ Host 把 DSH 会话事件映射为下表的记录；**只读**，不改变本地
 - Host 每 10 秒兜底发一次 `state`（保活/状态纠正）；客户端可忽略重复。
 - 订阅者主动 `unsub`、连接断开或 host 卸载时结束。
 
-### 3.5 语音识别
+### 3.5 远程提问（`user-questions/request` 转发）
+
+当一台电脑上的 Agent 调用 `ask_user_question` 时，Host 把该请求同时提供给已在线设备：
+
+| 方法 | 参数 | 返回 |
+| --- | --- | --- |
+| `session.question` | `{ "questionId", "sessionId", "callId", "questions": [AskUserQuestionItem], "timed": boolean }` | `{ "answers": [ { "id", "selected": ["…"], "custom"? } ] }` |
+| `session.questionCancel` | `{ "questionId" }` | `{ "cancelled": boolean }` |
+
+- 发起方对所有在线设备并发调用 `session.question`，**第一个作答**的结果用于回答本地提问；其余设备收到
+  `session.questionCancel` 后撤下该问题。
+- 接收方只有在本地存在该远程会话的镜像时才接受；否则回 `unavailable`，发起方退回自己的本机问答 UI。
+- 作答超时（默认 10 分钟）回 `timeout`；本机问答 UI 与远程作答是竞争关系，谁先回答谁生效。
+- `questions` 复用 DSH `AskUserQuestionItem` 形状（`id`/`question`/`header`/`options`/`multiSelect`）。
+
+### 3.6 语音识别
 
 | 方法 | 参数 | 返回 |
 | --- | --- | --- |
@@ -319,6 +350,9 @@ Host 把 DSH 会话事件映射为下表的记录；**只读**，不改变本地
 | `selectPreset` | `{ "deviceId", "sessionId", "preset" }` | 同 `session.selectPreset` |
 | `ensureMirror` | `{ "deviceId", "sessionId" }` | `{ "localSessionId" }`（为远程会话建立/复用本机镜像） |
 | `mirrors` | `{}` | `{ "items": [...] }` 镜像映射与流诊断 |
+| `mirrorStatus` | `{}` | `{ "items": [ { "localSessionId", "running", "queueCount", "settleReason", "settledAt", "questionId", "questionCount" } ] }` |
+| `mirrorQuestion` | `{ "sessionId" }` | `{ "question": { "questionId", "questions": [...] } \| null }` |
+| `answerQuestion` | `{ "sessionId", "answers": [...] }` | `{ "answered": true }` |
 | `watch` / `unwatch` | `{ "sessionId" }` | `{ "watching": true }` |
 | `sync` | `{ "deviceId"? }` | 强制同步镜像 |
 | `localRenameSession` / `localRenameWorkspace` | 本机会话/项目 id + 标题 | `{ "title" }` |
@@ -337,7 +371,7 @@ Host 把 DSH 会话事件映射为下表的记录；**只读**，不改变本地
   "speech": { "available": true, "phase": "ready", "language": "zh" },
   "settings": { "streaming": true },
   "mirrors": [ { "localSessionId", "deviceId", "deviceName", "remoteSessionId", "title" } ],
-  "version": "1.2.1"
+  "version": "1.3.0"
 }
 ```
 
