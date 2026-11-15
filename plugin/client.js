@@ -1145,17 +1145,63 @@ window.__ModuleLoader__.load({
     }
     /** How long a finished or failed turn keeps its dot on the row. */
     const STATUS_DOT_LINGER_MS = 10 * 60 * 1000
+    /**
+     * Mirrored Sessions open in the main view. The shipped sidebar drops its
+     * completion reminder once a Session has been seen; a remote turn must do
+     * the same instead of leaving a green dot behind after you open the row.
+     */
+    const viewStore = { open: new Set(), listeners: new Set() }
+    /** Settled turns already acknowledged, per mirrored Session. */
+    const acknowledgedAt = new Map()
+    function notifyView() {
+      for (const listener of viewStore.listeners) listener()
+    }
+    /** Replace the open-Session set; rows that just closed count as seen. */
+    function syncOpenSessions(next) {
+      let changed = next.size !== viewStore.open.size
+      if (!changed) {
+        for (const id of next) {
+          if (viewStore.open.has(id)) continue
+          changed = true
+          break
+        }
+      }
+      const stamp = Date.now()
+      for (const id of viewStore.open) {
+        if (next.has(id)) continue
+        acknowledgedAt.set(id, stamp)
+      }
+      for (const id of next) acknowledgedAt.set(id, stamp)
+      if (!changed) return
+      viewStore.open = next
+      notifyView()
+    }
+    /** Subscribe one component to whether its Session is open in the main view. */
+    function useSessionOpen(sessionId) {
+      const [version, bump] = React.useState(0)
+      React.useEffect(() => {
+        const listener = () => bump((value) => value + 1)
+        viewStore.listeners.add(listener)
+        return () => {
+          viewStore.listeners.delete(listener)
+        }
+      }, [])
+      void version
+      return viewStore.open.has(sessionId)
+    }
     /** Derive the row indicator from one live status record. */
-    function mirrorStatusView(live) {
+    function mirrorStatusView(live, sessionId, open) {
       if (live === null || typeof live !== 'object') return null
       // A pending question is published as a native pending interaction, so the
       // shipped row already shows its own warning dot for it.
       if (live.running === true) return { className: 'is-running', label: 'mirror.statusRunning' }
+      if (open === true) return null
       const settledAt = Number.isFinite(live.settledAt) ? live.settledAt : 0
-      if (settledAt > 0 && Date.now() - settledAt < STATUS_DOT_LINGER_MS) {
-        if (live.settleReason === 'error') return { className: 'is-error', label: 'mirror.statusFailed' }
-        if (live.settleReason === 'completed') return { className: 'is-done', label: 'mirror.statusDone' }
-      }
+      if (settledAt <= 0) return null
+      if (settledAt <= (acknowledgedAt.get(sessionId) ?? 0)) return null
+      if (Date.now() - settledAt >= STATUS_DOT_LINGER_MS) return null
+      if (live.settleReason === 'error') return { className: 'is-error', label: 'mirror.statusFailed' }
+      if (live.settleReason === 'completed') return { className: 'is-done', label: 'mirror.statusDone' }
       return null
     }
     /** Human-readable queued count suffix for one live status record. */
@@ -1214,21 +1260,36 @@ window.__ModuleLoader__.load({
       return remoteSettingsStore.target
     }
 
+    /**
+     * Sidebar leading status marker for a mirrored remote Session. It renders in
+     * the seat the shipped row uses for its own status dot, so a remote turn
+     * reports running/done on the left like every local Session. The row only
+     * calls this seat while its own primary status is idle, so the two never
+     * share the slot.
+     */
+    function createRemoteStatusDot(t) {
+      return function RemoteSessionStatusDot({ sessionId }) {
+        const live = useLiveStatus(sessionId)
+        const open = useSessionOpen(sessionId)
+        const status = mirrorStatusView(live, sessionId, open)
+        if (status === null) return null
+        return React.createElement('span', {
+          className: cls('dsh-link-status-dot', status.className),
+          role: 'status',
+          title: t(status.label),
+          'aria-label': t(status.label),
+        })
+      }
+    }
+
     /** Sidebar trailing badge for a mirrored remote Session. */
     function createRemoteBadge(t) {
       return function RemoteSessionBadge({ sessionId }) {
         const mirror = useMirrorItem(sessionId)
         const live = useLiveStatus(sessionId)
         if (mirror === undefined) return null
-        const status = mirrorStatusView(live)
         const queued = mirrorQueuedCount(live)
         return React.createElement(React.Fragment, null,
-          status === null ? null : React.createElement('span', {
-            className: cls('dsh-link-status-dot', status.className),
-            role: 'status',
-            title: t(status.label),
-            'aria-label': t(status.label),
-          }),
           queued > 0 ? React.createElement('span', {
             className: 'dsh-link-status-count',
             title: t('mirror.statusQueued', { n: queued }),
@@ -4266,7 +4327,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale', 'uiWorkspace', 'uiSession'],
+      inject: ['slots', 'locale', 'sessions', 'uiWorkspace', 'uiSession'],
       apply(ctx) {
         // Every slot this bundle decorates shares one stylesheet, so it belongs
         // to the plugin lifetime, not to any one panel's mount.
@@ -4288,8 +4349,33 @@ window.__ModuleLoader__.load({
         const Workspace = createWorkspace(ctx, t)
         const SettingsPage = createSettingsPage(ctx, t)
         const RemoteBadge = createRemoteBadge(t)
+        const RemoteStatusDot = createRemoteStatusDot(t)
         const RemoteHeaderBadge = createRemoteHeaderBadge(t)
         const RemoteSettingsRowAction = createRemoteSettingsRowAction(t)
+
+        // A remote turn that settles while its Session is open must not leave a
+        // dot behind: track the Sessions the shipped main view has retained.
+        ctx.effect(() => {
+          const list = ctx.sessions !== undefined && ctx.sessions !== null ? ctx.sessions.list : undefined
+          if (list === undefined || list === null || typeof list.getSnapshot !== 'function') return undefined
+          const read = () => {
+            const next = new Set()
+            const snapshot = list.getSnapshot()
+            const byId = snapshot !== null && typeof snapshot === 'object' ? snapshot.byId : undefined
+            if (byId === undefined || byId === null) return next
+            for (const [id, row] of Object.entries(byId)) {
+              const retained = row !== null && typeof row === 'object' ? row.retainedBy : undefined
+              if ((retained?.mainView ?? 0) > 0) next.add(id)
+            }
+            return next
+          }
+          const sync = () => syncOpenSessions(read())
+          const dispose = typeof list.subscribe === 'function' ? list.subscribe(sync) : undefined
+          sync()
+          return () => {
+            if (typeof dispose === 'function') dispose()
+          }
+        }, 'dsh-link: open Session tracking')
 
         ctx.effect(() => {
           void refreshMirrors(true)
@@ -4363,6 +4449,14 @@ window.__ModuleLoader__.load({
           order: 40,
           label: () => t('settings.nav'),
         }, SettingsPage))
+
+        // The shipped row renders its own dot in the leading seat; this bundle
+        // joins that seat so running/done sits where every other Session puts it.
+        ctx.slots.inject('sidebar.session.row.leading', () => ctx.slots.register({
+          name: 'sidebar.session.row.leading',
+          id: 'dsh-link-remote-status',
+          order: 30,
+        }, RemoteStatusDot))
 
         ctx.slots.inject('sidebar.session.row.trailing', () => ctx.slots.register({
           name: 'sidebar.session.row.trailing',
