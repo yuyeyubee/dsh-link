@@ -3,7 +3,7 @@
 > 用一台你自己的公网 relay，把多台电脑上的 **DeepSeek Harness（DSH）** 和 **Android 手机** 连成一个只属于你的私有空间：在这台电脑上直接看到、打开、操作另一台电脑的 DSH 会话；本机 AI 也能用工具驱动远程 DSH；手机可以连接多台电脑，并用语音输入把话发到指定电脑、由那台电脑本地识别后把文字传回手机。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Plugin](https://img.shields.io/badge/plugin-1.3.0-brightgreen)
+![Plugin](https://img.shields.io/badge/plugin-1.3.1-brightgreen)
 ![Protocol](https://img.shields.io/badge/protocol-v1-blue)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84)
 
@@ -330,7 +330,7 @@ node tools/probe-client.mjs --pairing-file ~/.dsh/dsh-link/pairing-code.txt --me
 
 | 组件 | 版本 | 说明 |
 | --- | --- | --- |
-| DSH Link 插件 | 1.3.0 | 会话状态点与运行指示、远程问答转发、图片互发、目标/看板等富事件镜像、运行中发送改为「插入」而非排队 |
+| DSH Link 插件 | 1.3.1 | 会话状态点与运行指示、远程问答转发、图片互发、目标/看板等富事件镜像、运行中发送改为「插入」而非排队；侧栏远程会话设置按钮与原生行操作按钮对齐 |
 | 协议 | v1 | 新增字段向后兼容；新增方法无需升版 |
 | relay | 1.0.0（protocol v1） | Node.js ≥ 20，`ws` 单依赖 |
 | Android App | 1.2.1 | minSdk 26（Android 8.0+），协议 v1（与 1.2.2 插件兼容） |
