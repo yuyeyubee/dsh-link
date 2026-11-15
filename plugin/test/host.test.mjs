@@ -278,8 +278,8 @@ test('local methods map sessions, history, state, and workspaces', async () => {
   const history = await host.invokeLocal('session.history', { sessionId: 'session-a' })
   assert.equal(history.cursor, 6)
   assert.equal(history.title, '测试会话')
-  assert.deepEqual(history.records.map((record) => record.kind), ['user', 'assistant', 'tool-call', 'tool-result', 'turn-end'])
-  assert.equal(history.records[0].text, '你好')
+  assert.deepEqual(history.records.map((record) => record.kind), ['event', 'user', 'assistant', 'tool-call', 'tool-result', 'turn-end'])
+  assert.equal(history.records.find((record) => record.kind === 'user').text, '你好')
 
   const created = await host.invokeLocal('session.create', { cwd: '/tmp/project' })
   assert.equal(created.sessionId, 'session-new')
@@ -300,7 +300,7 @@ test('follow streams a snapshot, records, and state frames', async () => {
   for await (const frame of host.followSession('session-a', new AbortController().signal)) frames.push(frame)
   assert.equal(frames[0].t, 'ready')
   const snapshot = frames.find((frame) => frame.t === 'snapshot')
-  assert.equal(snapshot.records.length, 2)
+  assert.equal(snapshot.records.length, 3)
   assert.equal(snapshot.cursor, 5)
   const kinds = frames.filter((frame) => frame.t === 'record').map((frame) => frame.record.kind)
   assert.deepEqual(kinds, ['tool-call', 'tool-result', 'turn-end'])
@@ -1125,12 +1125,12 @@ test('a changed mirror thinking level is pushed before the prompt is forwarded',
   await host.forwardMirrorPrompt('session-mirror', '继续', {
     provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high',
   })
-  assert.deepEqual(calls.map(([method]) => method), ['session.selectModel', 'session.prompt'])
-  assert.deepEqual(calls[0][1], {
+  assert.deepEqual(calls.map(([method]) => method), ['session.state', 'session.selectModel', 'session.prompt'])
+  assert.deepEqual(calls[1][1], {
     sessionId: 'session-remote',
     selection: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' },
   })
-  assert.deepEqual(calls[1][1], { sessionId: 'session-remote', text: '继续' })
+  assert.deepEqual(calls[2][1], { sessionId: 'session-remote', text: '继续', mode: 'queue' })
   assert.deepEqual(host.mirrors.devices.dev_peer.sessions['session-remote'].pendingUserTexts, ['继续'])
 
   // A prompt that did not change the local selection does not repeat the push.
@@ -1138,7 +1138,8 @@ test('a changed mirror thinking level is pushed before the prompt is forwarded',
   await host.forwardMirrorPrompt('session-mirror', '再来', {
     provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high',
   })
-  assert.deepEqual(calls.map(([method]) => method), ['session.prompt'])
+  assert.deepEqual(calls.map(([method]) => method), ['session.state', 'session.prompt'])
+  assert.equal(calls[1][1].mode, 'queue')
 })
 
 test('remote settings gear keeps the local mirror model in step', async () => {
@@ -1189,4 +1190,264 @@ test('remote settings gear keeps the local mirror model in step', async () => {
     local: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' },
     remote: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' },
   })
+})
+
+/* -------------------------------------------------------------------------- */
+/* Rich mirror events, live status, queue mode, and remote questions          */
+/* -------------------------------------------------------------------------- */
+
+/** Mirror fixture: one remote Session mapped to one local mirror id. */
+function makeMirrorHost() {
+  const services = makeServices()
+  const host = makeHost(services)
+  host.mirrors = {
+    version: 2,
+    devices: {
+      dev_peer: {
+        name: '出差笔记本',
+        workspaces: {},
+        sessions: {
+          'session-remote': { localId: 'session-mirror', title: '远程会话', remoteSeq: 0, updatedAt: 1, pendingUserTexts: [] },
+        },
+      },
+    },
+  }
+  return { host, services }
+}
+
+test('rich events are mirrored so native projections can render', async () => {
+  const { mapWireEvent } = await import('../index.js')
+  const goal = mapWireEvent({ type: 'goal/change', seq: 7, time: 7, data: { goal: { id: 'g1', phase: 'active' } } })
+  assert.equal(goal.kind, 'event')
+  assert.equal(goal.type, 'goal/change')
+  assert.equal(JSON.parse(goal.data).goal.id, 'g1')
+  assert.equal(mapWireEvent({ type: 'request/header', seq: 8, time: 8, data: {} }), undefined)
+  assert.equal(mapWireEvent({ type: 'llm/retry', seq: 9, time: 9, data: {} }), undefined)
+
+  const { host } = makeMirrorHost()
+  const session = makeFakeSession('session-mirror')
+  host.service = (key) => (key === 'sessions' ? { get: () => session } : undefined)
+  const entry = host.mirrors.devices.dev_peer.sessions['session-remote']
+  const appended = host.appendMirrorRecords(entry, [
+    { kind: 'event', seq: 10, time: 10, type: 'todo/write', data: JSON.stringify({ todos: [{ id: '1', text: '写测试', status: 'pending' }] }) },
+  ])
+  assert.equal(appended.length, 1)
+  assert.equal(session.events.at(-1).type, 'todo/write')
+  assert.equal(session.events.at(-1).data.todos[0].text, '写测试')
+})
+
+test('mirror keeps large tool payloads that native tool views parse', async () => {
+  const { mapWireEvent } = await import('../index.js')
+  const body = 'x'.repeat(6000)
+  const result = mapWireEvent({ type: 'tool/result', seq: 1, time: 1, data: { message: { toolCallId: 't1', toolName: 'todo', content: [{ type: 'text', text: body }] } } })
+  assert.equal(result.text.length, 6000)
+})
+
+test('live status tracks running, settles, and queues', async () => {
+  const { host } = makeMirrorHost()
+  host.applyMirrorState('session-mirror', { active: true, running: true, queueCount: 0, pendingInput: [] })
+  let items = host.mirrorStatusList()
+  assert.equal(items.length, 1)
+  assert.equal(items[0].running, true)
+  assert.equal(items[0].remoteSessionId, 'session-remote')
+
+  const entry = host.mirrors.devices.dev_peer.sessions['session-remote']
+  host.markMirrorTurnSettled(entry, 'error')
+  items = host.mirrorStatusList()
+  assert.equal(items[0].running, false)
+  assert.equal(items[0].settleReason, 'error')
+  assert.ok(items[0].settledAt > 0)
+
+  host.touchMirrorLive('session-mirror', { queueCount: 2 })
+  assert.equal(host.mirrorStatusList()[0].queueCount, 2)
+})
+
+test('a prompt during a running remote turn is steered, not queued', async () => {
+  const { host } = makeMirrorHost()
+  host.watchMirror = () => ({ watching: false })
+  host.mirrorModelStates.set('session-mirror', {})
+  const calls = []
+  host.remoteCall = async (_peerId, method, params) => {
+    calls.push([method, params])
+    if (method === 'session.state') return { active: true, running: true, queueCount: 0, pendingInput: [] }
+    return {}
+  }
+  await host.forwardMirrorPrompt('session-mirror', '插一句', undefined)
+  const prompt = calls.find(([method]) => method === 'session.prompt')
+  assert.equal(prompt[1].mode, 'steer')
+  assert.equal(host.mirrorStatusList()[0].running, true)
+})
+
+test('an open remote question is offered to peers and answered by the first one', async () => {
+  const { host } = makeMirrorHost()
+  host.relay = { state: 'connected' }
+  const asked = []
+  host.remoteCall = async (_peerId, method, params) => {
+    asked.push([method, params])
+    if (method === 'session.question') return { answers: [{ id: 'q1', selected: ['A'] }] }
+    return {}
+  }
+  const request = {
+    agent: { session: { id: 'session-remote' } },
+    wait: { callId: 'call-9', timed: true },
+    questions: [{ id: 'q1', question: '继续吗？', options: [{ label: 'A' }, { label: 'B' }] }],
+  }
+  const result = await host.handlePeerQuestion(request, () => 'NEXT')
+  assert.deepEqual(result, { answers: [{ id: 'q1', selected: ['A'] }] })
+  assert.equal(asked[0][0], 'session.question')
+  assert.equal(asked[0][1].sessionId, 'session-remote')
+  assert.equal(asked[0][1].callId, 'call-9')
+})
+
+test('a question nobody can answer delegates to the shipped answerers', async () => {
+  const { host } = makeMirrorHost()
+  host.peers = []
+  const result = await host.handlePeerQuestion({
+    agent: { session: { id: 'session-remote' } },
+    wait: { callId: 'call-9', timed: true },
+    questions: [{ id: 'q1', question: '继续吗？' }],
+  }, () => 'NEXT')
+  assert.equal(result, 'NEXT')
+})
+
+test('an incoming peer question becomes locally answerable and replies once', async () => {
+  const { host } = makeMirrorHost()
+  const sent = []
+  const relay = { send: (frame) => sent.push(frame) }
+  host.handleQuestionCall(relay, 'r1', 'dev_peer', {
+    questionId: 'dev_peer:session-remote:call-9',
+    sessionId: 'session-remote',
+    callId: 'call-9',
+    questions: [{ id: 'q1', question: '继续吗？', options: [{ label: 'A' }, { label: 'B' }] }],
+  })
+  const pending = host.mirrorQuestion('session-mirror')
+  assert.equal(pending.questions.length, 1)
+  assert.equal(host.mirrorStatusList()[0].questionId, 'dev_peer:session-remote:call-9')
+
+  const result = host.answerMirrorQuestion('session-mirror', [{ id: 'q1', selected: ['A'], custom: '继续' }])
+  assert.deepEqual(result, { answered: true })
+  await new Promise((resolve) => setImmediate(resolve))
+  const reply = sent.find((frame) => frame.t === 'reply')
+  assert.equal(reply.ok, true)
+  assert.deepEqual(reply.result.answers, [{ id: 'q1', selected: ['A'], custom: '继续' }])
+  assert.equal(host.mirrorStatusList()[0].questionId, '')
+  assert.equal(host.mirrorQuestion('session-mirror'), undefined)
+})
+
+test('HTTP mirrorStatus and answerQuestion expose the live question', async () => {
+  const { host } = makeMirrorHost()
+  const sent = []
+  host.handleQuestionCall({ send: (frame) => sent.push(frame) }, 'r1', 'dev_peer', {
+    questionId: 'dev_peer:session-remote:call-9',
+    sessionId: 'session-remote',
+    callId: 'call-9',
+    questions: [{ id: 'q1', question: '继续吗？' }],
+  })
+  const call = async (body) => {
+    const response = await handleApiRoute(new Request('http://localhost/api/dsh-link', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }), host)
+    return { status: response.status, body: await response.json() }
+  }
+  const status = await call({ op: 'mirrorStatus' })
+  assert.equal(status.body.items[0].questionId, 'dev_peer:session-remote:call-9')
+  const question = await call({ op: 'mirrorQuestion', sessionId: 'session-mirror' })
+  assert.equal(question.body.question.questions[0].question, '继续吗？')
+  const answered = await call({ op: 'answerQuestion', sessionId: 'session-mirror', answers: [{ id: 'q1', selected: ['A'] }] })
+  assert.equal(answered.body.answered, true)
+})
+
+/* -------------------------------------------------------------------------- */
+/* Images                                                                     */
+/* -------------------------------------------------------------------------- */
+
+/** Minimal attachment store: one PNG byte string, readable and admitted. */
+function makeAttachments() {
+  const bytes = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4])
+  const ref = { attachmentId: 'att_png_1', mediaType: 'image/png', bytes: bytes.byteLength, width: 2, height: 2, name: 'shot.png' }
+  return {
+    imageLimits: { maxImageBytes: 4 * 1024 * 1024, maxImagesPerMessage: 4, maxMessageImageBytes: 8 * 1024 * 1024, imageLimits: {} },
+    async readImage(requested) {
+      return { ref: { ...ref, ...requested }, data: bytes }
+    },
+    async saveImage(input) {
+      return { ...ref, mediaType: input.mediaType }
+    },
+  }
+}
+
+test('a peer prompt admits encoded images into the local Session', async () => {
+  const services = makeServices()
+  const host = makeHost(services)
+  const base64 = Buffer.from([0x89, 0x50, 0x4e, 0x47, 9]).toString('base64')
+  await host.sessionPrompt({
+    sessionId: 'session-a',
+    text: '看这张图',
+    content: [{ type: 'text', text: '看这张图' }, { type: 'image', mediaType: 'image/png', data: base64, name: 'shot.png' }],
+  })
+  const content = services.sessionController.lastPrompt.content
+  assert.equal(content[0].text, '看这张图')
+  assert.equal(content[1].type, 'image')
+  assert.equal(content[1].mediaType, 'image/png')
+  assert.equal(content[1].data, base64)
+
+  await assert.rejects(
+    () => host.sessionPrompt({ sessionId: 'session-a', content: [{ type: 'image', mediaType: 'text/html', data: base64 }] }),
+    /不支持的图片格式/u,
+  )
+  await assert.rejects(() => host.sessionPrompt({ sessionId: 'session-a', text: '' }), /消息内容不能为空/u)
+})
+
+test('mirror forwarding encodes local images and keeps them in the local log', async () => {
+  const { host } = makeMirrorHost()
+  const attachments = makeAttachments()
+  const session = makeFakeSession('session-mirror')
+  const services = { sessions: { get: () => session }, attachments }
+  host.service = (key) => services[key]
+  const ref = { attachmentId: 'att_png_1', mediaType: 'image/png', bytes: 8, width: 2, height: 2, name: 'shot.png' }
+  const content = await host.promptContentWithImages('看图', [ref])
+  assert.equal(content[0].text, '看图')
+  assert.equal(content[1].type, 'image')
+  assert.equal(Buffer.from(content[1].data, 'base64').byteLength, 8)
+
+  host.mirrors.devices.dev_peer.sessions['session-remote'].pendingUserTexts = []
+  host.appendMirrorUserText(host.mirrors.devices.dev_peer.sessions['session-remote'], '看图', [ref])
+  const message = session.events.find((event) => event.type === 'user/message')
+  assert.equal(message.data.content[1].type, 'image')
+  assert.equal(message.data.content[1].attachment.attachmentId, 'att_png_1')
+})
+
+test('a forwarded prompt carries image parts to the peer', async () => {
+  const { host } = makeMirrorHost()
+  host.watchMirror = () => ({ watching: false })
+  host.service = (key) => (key === 'attachments' ? makeAttachments() : undefined)
+  const calls = []
+  host.remoteCall = async (_peerId, method, params) => {
+    calls.push([method, params])
+    return {}
+  }
+  const ref = { attachmentId: 'att_png_1', mediaType: 'image/png', bytes: 8, width: 2, height: 2 }
+  await host.forwardMirrorPrompt('session-mirror', '看图', undefined, [ref])
+  const prompt = calls.find(([method]) => method === 'session.prompt')
+  assert.equal(prompt[1].content[0].text, '看图')
+  assert.equal(prompt[1].content[1].type, 'image')
+})
+
+test('an image-only user message still maps to a record with its image refs', async () => {
+  const { mapWireEvent } = await import('../index.js')
+  const record = mapWireEvent({
+    type: 'user/message',
+    seq: 3,
+    time: 3,
+    data: {
+      content: [{ type: 'image', attachment: { attachmentId: 'att_9', mediaType: 'image/png', bytes: 12, width: 3, height: 4 } }],
+      source: { kind: 'user' },
+    },
+  })
+  assert.equal(record.kind, 'user')
+  assert.equal(record.text, '')
+  assert.equal(record.images[0].attachmentId, 'att_9')
+  assert.equal(record.images[0].mediaType, 'image/png')
 })

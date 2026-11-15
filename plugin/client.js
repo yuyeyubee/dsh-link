@@ -256,6 +256,20 @@ window.__ModuleLoader__.load({
         'remoteSettings.localId': 'Local mirror Session ID',
         'mirror.badge': 'Remote',
         'mirror.header': 'Remote · {name}',
+        'mirror.statusRunning': 'Remote turn running',
+        'mirror.statusWaiting': 'Waiting for your answer',
+        'mirror.statusDone': 'Remote turn finished',
+        'mirror.statusFailed': 'Remote turn failed',
+        'mirror.statusQueued': '{n} queued',
+        'question.open': 'Answer',
+        'question.title': 'Question from the remote session',
+        'question.empty': 'No pending question.',
+        'question.submit': 'Submit answer',
+        'question.submitting': 'Submitting…',
+        'question.custom': 'Other answer (optional)',
+        'question.multiHint': 'Select one or more',
+        'question.loadFailed': 'Could not load the question',
+        'question.submitted': 'Answer sent',
       },
       zh: {
         panel: '跨设备',
@@ -480,6 +494,20 @@ window.__ModuleLoader__.load({
         'remoteSettings.localId': '本地镜像 Session ID',
         'mirror.badge': '远程',
         'mirror.header': '远程 · {name}',
+        'mirror.statusRunning': '远程正在运行',
+        'mirror.statusWaiting': '等待本机回答',
+        'mirror.statusDone': '远程已完成',
+        'mirror.statusFailed': '远程运行失败',
+        'mirror.statusQueued': '排队 {n} 条',
+        'question.open': '回答问题',
+        'question.title': '远程会话的提问',
+        'question.empty': '没有待回答的问题。',
+        'question.submit': '提交答案',
+        'question.submitting': '提交中…',
+        'question.custom': '其他答案（可选）',
+        'question.multiHint': '可多选',
+        'question.loadFailed': '读取问题失败',
+        'question.submitted': '答案已发送',
       },
     }
 
@@ -747,6 +775,31 @@ window.__ModuleLoader__.load({
 
       .dsh-link-remote-chip { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 999px; border: .5px solid var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); background: var(--dsw-alias-bg-layer-2); font-size: 10px; font-weight: 600; line-height: 1; letter-spacing: .02em; white-space: nowrap; flex: none; }
       .dsh-link-remote-chip.is-header { height: 22px; padding: 0 8px; font-size: 11px; font-weight: 500; }
+      .dsh-link-native-gear.is-header.is-question { width: auto; padding: 0 8px; font-size: 11px; font-weight: 600; color: var(--dsw-alias-state-warn-label); }
+      .dsh-link-status-dot { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; color: var(--dsw-alias-state-idle-primary); }
+      .dsh-link-status-dot.is-running { color: var(--dsw-alias-state-business-primary); }
+      .dsh-link-status-dot.is-waiting { color: var(--dsw-alias-state-warn-primary); }
+      .dsh-link-status-dot.is-done { color: var(--dsw-alias-state-success-primary); }
+      .dsh-link-status-dot.is-error { color: var(--dsw-alias-state-error-primary); }
+      .dsh-link-status-dot.is-running::before { content: ''; width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid currentColor; border-top-color: transparent; animation: dsh-link-spin .9s linear infinite; }
+      .dsh-link-status-dot.is-waiting::before, .dsh-link-status-dot.is-done::before, .dsh-link-status-dot.is-error::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+      .dsh-link-status-dot.is-error::before { width: 9px; height: 9px; border-radius: 2px; }
+      .dsh-link-status-count { flex: none; font-size: 10px; line-height: 1; color: var(--dsw-alias-state-warn-label); }
+      @keyframes dsh-link-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .dsh-link-status-dot.is-running::before { animation-duration: 2.4s; } }
+      .dsh-link-question { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+      .dsh-link-question-item { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: .5px solid var(--dsw-alias-border-l3); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); }
+      .dsh-link-question-header { font-size: 11px; font-weight: 600; color: var(--dsw-alias-label-tertiary); text-transform: uppercase; letter-spacing: .04em; }
+      .dsh-link-question-text { font-size: 13.5px; font-weight: 500; color: var(--dsw-alias-label-primary); }
+      .dsh-link-question-detail { font-size: 12px; color: var(--dsw-alias-label-secondary); white-space: pre-wrap; }
+      .dsh-link-question-options { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+      .dsh-link-question-option { display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 7px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit; font-size: 12.5px; cursor: pointer; }
+      .dsh-link-question-option.is-active { border-color: var(--dsw-alias-state-business-primary); background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-state-business-primary); font-weight: 600; }
+      .dsh-link-question-hint { align-self: center; font-size: 11px; color: var(--dsw-alias-label-tertiary); }
+      .dsh-link-question-custom { box-sizing: border-box; width: 100%; height: 32px; padding: 0 10px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 7px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font: inherit; font-size: 12.5px; }
+      .dsh-link-question-actions { display: flex; justify-content: flex-end; gap: 8px; }
+      .dsh-link-muted { font-size: 12.5px; color: var(--dsw-alias-label-tertiary); }
+      .dsh-link-error { font-size: 12.5px; color: var(--dsw-alias-state-error-primary); }
       .dsh-link-remote-header { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
       .dsh-link-native-gear { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--dsw-alias-label-tertiary); cursor: pointer; flex: none; }
       .dsh-link-native-gear:not(:disabled):hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
@@ -982,6 +1035,17 @@ window.__ModuleLoader__.load({
         const payload = await postOperation({ op: 'mirrors' })
         return Array.isArray(payload.items) ? payload.items.filter((item) => item !== null && typeof item === 'object' && typeof item.localSessionId === 'string') : []
       },
+      async mirrorStatus() {
+        const payload = await postOperation({ op: 'mirrorStatus' })
+        return Array.isArray(payload.items) ? payload.items.filter((item) => item !== null && typeof item === 'object' && typeof item.localSessionId === 'string') : []
+      },
+      async mirrorQuestion(sessionId) {
+        const payload = await postOperation({ op: 'mirrorQuestion', sessionId })
+        return payload.question === null || typeof payload.question !== 'object' ? null : payload.question
+      },
+      async answerQuestion(sessionId, answers) {
+        return postOperation({ op: 'answerQuestion', sessionId, answers })
+      },
       async watch(sessionId) {
         return postOperation({ op: 'watch', sessionId })
       },
@@ -1023,6 +1087,80 @@ window.__ModuleLoader__.load({
       return mirrorStore.items.find((item) => item.localSessionId === sessionId)
     }
 
+    /**
+     * Live remote status per mirror Session. The Host keeps it in memory and
+     * this store polls it while the window is visible, so sidebar rows show
+     * the remote turn state without opening the conversation.
+     */
+    const liveStore = { byId: new Map(), at: 0, loading: null, listeners: new Set() }
+    function notifyLive() {
+      for (const listener of liveStore.listeners) listener()
+    }
+    function refreshLive() {
+      if (liveStore.loading !== null) return liveStore.loading
+      liveStore.loading = api.mirrorStatus().then((items) => {
+        const next = new Map()
+        for (const item of items) next.set(item.localSessionId, item)
+        liveStore.byId = next
+        liveStore.at = Date.now()
+        notifyLive()
+        return items
+      }).catch(() => []).finally(() => {
+        liveStore.loading = null
+      })
+      return liveStore.loading
+    }
+    /** Subscribe one component to the live status of one mirror Session. */
+    function useLiveStatus(sessionId) {
+      const [version, bump] = React.useState(0)
+      React.useEffect(() => {
+        const listener = () => bump((value) => value + 1)
+        liveStore.listeners.add(listener)
+        return () => {
+          liveStore.listeners.delete(listener)
+        }
+      }, [])
+      void version
+      return liveStore.byId.get(sessionId)
+    }
+    /** How long a finished or failed turn keeps its dot on the row. */
+    const STATUS_DOT_LINGER_MS = 10 * 60 * 1000
+    /** Derive the row indicator from one live status record. */
+    function mirrorStatusView(live) {
+      if (live === null || typeof live !== 'object') return null
+      // A pending question is published as a native pending interaction, so the
+      // shipped row already shows its own warning dot for it.
+      if (live.running === true) return { className: 'is-running', label: 'mirror.statusRunning' }
+      const settledAt = Number.isFinite(live.settledAt) ? live.settledAt : 0
+      if (settledAt > 0 && Date.now() - settledAt < STATUS_DOT_LINGER_MS) {
+        if (live.settleReason === 'error') return { className: 'is-error', label: 'mirror.statusFailed' }
+        if (live.settleReason === 'completed') return { className: 'is-done', label: 'mirror.statusDone' }
+      }
+      return null
+    }
+    /** Human-readable queued count suffix for one live status record. */
+    function mirrorQueuedCount(live) {
+      return live !== null && typeof live === 'object' && Number.isFinite(live.queueCount) && live.queueCount > 0
+        ? live.queueCount
+        : 0
+    }
+
+    /** Which remote question the answer card currently shows. */
+    const questionStore = { target: null, listeners: new Set() }
+    function notifyQuestion() {
+      for (const listener of questionStore.listeners) listener()
+    }
+    function openQuestion(target) {
+      if (target === null || typeof target !== 'object') return
+      questionStore.target = { sessionId: target.sessionId, questionId: target.questionId ?? '', deviceName: target.deviceName ?? '' }
+      notifyQuestion()
+    }
+    function closeQuestion() {
+      if (questionStore.target === null) return
+      questionStore.target = null
+      notifyQuestion()
+    }
+
     /** Shared open/closed state for the remote-session settings modal. */
     const remoteSettingsStore = { target: null, listeners: new Set() }
 
@@ -1060,18 +1198,37 @@ window.__ModuleLoader__.load({
     function createRemoteBadge(t) {
       return function RemoteSessionBadge({ sessionId }) {
         const mirror = useMirrorItem(sessionId)
+        const live = useLiveStatus(sessionId)
         if (mirror === undefined) return null
-        return React.createElement('span', {
-          className: 'dsh-link-remote-chip',
-          title: `${mirror.deviceName ?? ''}`,
-        }, t('mirror.badge'))
+        const status = mirrorStatusView(live)
+        const queued = mirrorQueuedCount(live)
+        return React.createElement(React.Fragment, null,
+          status === null ? null : React.createElement('span', {
+            className: cls('dsh-link-status-dot', status.className),
+            role: 'status',
+            title: t(status.label),
+            'aria-label': t(status.label),
+          }),
+          queued > 0 ? React.createElement('span', {
+            className: 'dsh-link-status-count',
+            title: t('mirror.statusQueued', { n: queued }),
+          }, String(queued)) : null,
+          React.createElement('span', {
+            className: 'dsh-link-remote-chip',
+            title: `${mirror.deviceName ?? ''}`,
+          }, t('mirror.badge')),
+        )
       }
     }
 
     /** Conversation header chip plus the remote-settings gear; also owns live watch. */
     function createRemoteHeaderBadge(t) {
+      /** Questions already auto-opened in this page load, so a refresh does not re-pop them. */
+      const autoOpened = new Set()
       return function RemoteSessionHeaderBadge({ sessionId }) {
         const mirror = useMirrorItem(sessionId)
+        const live = useLiveStatus(sessionId)
+        const questionId = live !== null && typeof live === 'object' && typeof live.questionId === 'string' ? live.questionId : ''
         React.useEffect(() => {
           if (mirror === undefined) return undefined
           void api.watch(sessionId).catch(() => {})
@@ -1079,12 +1236,32 @@ window.__ModuleLoader__.load({
             void api.unwatch(sessionId).catch(() => {})
           }
         }, [sessionId, mirror === undefined])
+        // A remote Agent is blocked until someone answers, so an open question
+        // pops the card once instead of waiting to be noticed.
+        React.useEffect(() => {
+          if (mirror === undefined || questionId === '') return
+          const key = `${sessionId}:${questionId}`
+          if (autoOpened.has(key)) return
+          autoOpened.add(key)
+          openQuestion({ sessionId, questionId, deviceName: mirror.deviceName ?? '' })
+        }, [sessionId, questionId, mirror === undefined])
         if (mirror === undefined) return null
         return React.createElement(React.Fragment, null,
           React.createElement('span', {
             className: 'dsh-link-remote-chip is-header',
             title: mirror.deviceName ?? '',
           }, t('mirror.header', { name: mirror.deviceName ?? '' })),
+          questionId === '' ? null : React.createElement('button', {
+            type: 'button',
+            className: 'dsh-link-native-gear is-header is-question',
+            title: t('question.open'),
+            'aria-label': t('question.open'),
+            onClick: (event) => {
+              event.stopPropagation()
+              openQuestion({ sessionId, questionId, deviceName: mirror.deviceName ?? '' })
+            },
+            onPointerDown: (event) => event.stopPropagation(),
+          }, t('question.open')),
           React.createElement('button', {
             type: 'button',
             className: 'dsh-link-native-gear is-header',
@@ -2639,6 +2816,145 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /** Subscribe one component to the shared answer-card target. */
+    function useQuestionTarget() {
+      const [target, setTarget] = React.useState(questionStore.target)
+      React.useEffect(() => {
+        const listener = () => setTarget(questionStore.target)
+        questionStore.listeners.add(listener)
+        listener()
+        return () => {
+          questionStore.listeners.delete(listener)
+        }
+      }, [])
+      return target
+    }
+
+    /** One remote question, answered here and forwarded to the asking computer. */
+    function QuestionCard({ t, target, onClose }) {
+      const [state, setState] = React.useState({ phase: 'loading', questions: [], error: '' })
+      const [draft, setDraft] = React.useState({})
+      const [submitting, setSubmitting] = React.useState(false)
+      React.useEffect(() => {
+        let live = true
+        setState({ phase: 'loading', questions: [], error: '' })
+        api.mirrorQuestion(target.sessionId).then((question) => {
+          if (!live) return
+          const questions = Array.isArray(question?.questions) ? question.questions.filter((item) => item !== null && typeof item === 'object') : []
+          if (questions.length === 0) {
+            setState({ phase: 'empty', questions: [], error: '' })
+            return
+          }
+          const nextDraft = {}
+          for (const item of questions) {
+            const id = typeof item.id === 'string' ? item.id : ''
+            if (id !== '') nextDraft[id] = { selected: [], custom: '' }
+          }
+          setDraft(nextDraft)
+          setState({ phase: 'ready', questions, error: '' })
+        }).catch((error) => {
+          if (live) setState({ phase: 'error', questions: [], error: errorText(error) || t('question.loadFailed') })
+        })
+        return () => {
+          live = false
+        }
+      }, [target.sessionId, target.questionId])
+
+      const answers = state.questions.map((item) => {
+        const id = typeof item.id === 'string' ? item.id : ''
+        const value = draft[id] ?? { selected: [], custom: '' }
+        const custom = typeof value.custom === 'string' ? value.custom.trim() : ''
+        return { id, selected: Array.isArray(value.selected) ? value.selected : [], ...(custom === '' ? {} : { custom }) }
+      })
+
+      const toggle = (id, label, multi) => {
+        setDraft((current) => {
+          const value = current[id] ?? { selected: [], custom: '' }
+          const selected = Array.isArray(value.selected) ? value.selected : []
+          const nextSelected = multi
+            ? selected.includes(label) ? selected.filter((item) => item !== label) : [...selected, label]
+            : selected.includes(label) ? [] : [label]
+          return { ...current, [id]: { ...value, selected: nextSelected } }
+        })
+      }
+
+      const submit = async () => {
+        if (submitting) return
+        setSubmitting(true)
+        try {
+          await api.answerQuestion(target.sessionId, answers)
+          onClose()
+        } catch (error) {
+          setState((current) => ({ ...current, error: errorText(error) }))
+        } finally {
+          setSubmitting(false)
+        }
+      }
+
+      return h(Sheet, { t, title: t('question.title'), wide: false, onClose },
+        h('div', { className: 'dsh-link-question' },
+          state.phase === 'loading' ? h('div', { className: 'dsh-link-muted' }, t('loading')) : null,
+          state.phase === 'empty' ? h('div', { className: 'dsh-link-muted' }, t('question.empty')) : null,
+          state.error !== '' ? h('div', { className: 'dsh-link-error' }, state.error) : null,
+          state.questions.map((item) => {
+            const id = typeof item.id === 'string' ? item.id : ''
+            const value = draft[id] ?? { selected: [], custom: '' }
+            const options = Array.isArray(item.options) ? item.options.filter((option) => option !== null && typeof option === 'object' && typeof option.label === 'string') : []
+            const multi = item.multiSelect === true
+            return h('div', { className: 'dsh-link-question-item', key: id },
+              typeof item.header === 'string' && item.header !== '' ? h('div', { className: 'dsh-link-question-header' }, item.header) : null,
+              h('div', { className: 'dsh-link-question-text' }, typeof item.question === 'string' ? item.question : ''),
+              typeof item.detail === 'string' && item.detail !== '' ? h('div', { className: 'dsh-link-question-detail' }, item.detail) : null,
+              options.length === 0 ? null : h('div', { className: 'dsh-link-question-options' },
+                options.map((option) => {
+                  const active = Array.isArray(value.selected) && value.selected.includes(option.label)
+                  return h('button', {
+                    type: 'button',
+                    key: option.label,
+                    className: cls('dsh-link-question-option', active ? 'is-active' : null),
+                    'aria-pressed': active,
+                    title: typeof option.description === 'string' ? option.description : '',
+                    onClick: () => toggle(id, option.label, multi),
+                  }, option.label)
+                }),
+                multi ? h('div', { className: 'dsh-link-question-hint' }, t('question.multiHint')) : null,
+              ),
+              h('input', {
+                type: 'text',
+                className: 'dsh-link-question-custom',
+                placeholder: t('question.custom'),
+                value: typeof value.custom === 'string' ? value.custom : '',
+                onChange: (event) => {
+                  const next = event.target.value
+                  setDraft((current) => ({ ...current, [id]: { ...(current[id] ?? { selected: [], custom: '' }), custom: next } }))
+                },
+              }),
+            )
+          }),
+          state.phase === 'ready' ? h('div', { className: 'dsh-link-question-actions' },
+            h('button', { type: 'button', className: 'dsh-link-primary', disabled: submitting, onClick: submit },
+              submitting ? t('question.submitting') : t('question.submit')),
+          ) : null,
+        ),
+      )
+    }
+
+    /** Overlay root for the answer card. */
+    function QuestionOverlay({ ctx, t }) {
+      useLocale(ctx)
+      const target = useQuestionTarget()
+      if (target === null) return null
+      return h(React.Fragment, null,
+        h('style', null, CSS),
+        h(QuestionCard, {
+          key: `${target.sessionId}:${target.questionId}`,
+          t,
+          target,
+          onClose: closeQuestion,
+        }),
+      )
+    }
+
     /* --------------------------------------------------------------------- */
     /* Settings                                                               */
     /* --------------------------------------------------------------------- */
@@ -3932,7 +4248,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale', 'uiWorkspace'],
+      inject: ['slots', 'locale', 'uiWorkspace', 'uiSession'],
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, {
           zh: LOCALE_DICTS.zh,
@@ -3951,6 +4267,54 @@ window.__ModuleLoader__.load({
           const timer = setInterval(() => { void refreshMirrors(true) }, 15000)
           return () => clearInterval(timer)
         }, 'dsh-link: mirror index')
+
+        ctx.effect(() => {
+          void refreshLive()
+          const timer = setInterval(() => {
+            if (typeof document === 'undefined' || document.visibilityState !== 'hidden') void refreshLive()
+          }, 3000)
+          return () => clearInterval(timer)
+        }, 'dsh-link: live mirror status')
+
+        // A remote question the local user has not answered yet is published as
+        // a native pending interaction, so the shipped sidebar row shows its own
+        // warning dot and "waiting for answer" label.
+        ctx.effect(() => {
+          let session
+          try {
+            session = ctx.uiSession
+          } catch {
+            session = undefined
+          }
+          if (session === undefined || typeof session.registerPendingInteraction !== 'function') return
+          const publish = session.registerPendingInteraction(() => 100)
+          const live = new Map()
+          const sync = () => {
+            const wanted = new Map()
+            for (const [localSessionId, status] of liveStore.byId) {
+              if (status === null || typeof status !== 'object') continue
+              if (typeof status.questionId !== 'string' || status.questionId.length === 0) continue
+              wanted.set(`dsh-link-question:${localSessionId}:${status.questionId}`, localSessionId)
+            }
+            for (const [key, dispose] of live) {
+              if (wanted.has(key)) continue
+              live.delete(key)
+              dispose()
+            }
+            for (const [key, localSessionId] of wanted) {
+              if (live.has(key)) continue
+              live.set(key, publish({ key, kind: 'question', sessionId: localSessionId }, async () => {}))
+            }
+          }
+          const listener = () => sync()
+          liveStore.listeners.add(listener)
+          sync()
+          return () => {
+            liveStore.listeners.delete(listener)
+            for (const dispose of live.values()) dispose()
+            live.clear()
+          }
+        }, 'dsh-link: pending remote questions')
 
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist',
@@ -3994,6 +4358,12 @@ window.__ModuleLoader__.load({
           id: 'dsh-link-remote-settings',
           order: 60,
         }, () => h(RemoteSettingsOverlay, { ctx, t })))
+
+        ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+          name: 'shell.overlay',
+          id: 'dsh-link-question',
+          order: 59,
+        }, () => h(QuestionOverlay, { ctx, t })))
       },
     }
   },

@@ -64,14 +64,25 @@
    `session.history` 映射成 DSH 原生事件（`turn/start`、`user/message`、`step/start`、
    `assistant/message`、`tool/call`、`tool/result`、`step/end`、`turn/end`）。工具调用保留原生
    `turn`/`step`/`callId`/`arguments` 与结果消息，因此复用 DSH 原生工具卡片（默认折叠），
-   不再拼成展开的文本；
+   不再拼成展开的文本；工具参数与结果按原文镜像（上限 64 KiB），因为任务看板、计划摘要等
+   原生视图需要解析完整 JSON；
+2a. 目标模式（`goal/change`）、计划状态（`plan/mode`）、任务看板（`todo/write`）、团队看板
+    （`team/*`）、审批卡（`approval/*`）、标题与模型/预设标记等富事件按原始事件名追加到本机
+    会话日志，本机原生投影与远端一致；模型请求与 LLM 重试记账不透传；
+2b. 远程状态（`running` / 排队数 / 待回答问题）由 `session.list`、follow 的 `state` 帧与
+    提问转发维护在 Host 内存中，Web UI 每 3 秒轮询 `mirrorStatus`，在会话行渲染转圈/绿点/
+    红点；待回答问题同时注册为 DSH 原生 pending interaction，侧栏显示「等待回答」；
+2c. 远程 `ask_user_question` 通过 Host 的 `user-questions/request` waterfall 转发给在线设备，
+    第一个作答的结果用于回答本机提问；本机问答 UI 与远程作答竞争，谁先回答谁生效；
 3. 打开镜像会话时，Web UI 的会话头组件向 Host 发 `watch`，Host 订阅远程
    `session.follow`（`assistantStream` 跟随设置，默认 `true`），提交记录继续追加到本机会话
    日志；远程正在生成时，瞬时 `assistant-stream` 分片通过本机 Cordis 的
    `agent/assistant-stream` 事件转发给 Web UI，于是镜像会话也能像原生会话一样逐字流式显示。
    在「设置 → 跨设备 → 流式输出」关闭后，Host 不再请求/转发瞬时分片，已打开的 watch 会
    立即重订阅，回复只在提交为 `assistant/message` 后整段出现；
-4. 在原生输入框发送时，`agent/pre-step` 门禁拦截本机模型请求，把 prompt 转发到远程 Host，
+4. 在原生输入框发送时，`agent/pre-step` 门禁拦截本机模型请求，把 prompt 转发到远程 Host
+   （远程正在运行时用 `steer` 插入当前回合，空闲时排队；图片按 base64 随 `content` 上传，
+   远程 Host 用本机附件服务的限额校验后写入远程附件库），
    并在转发前用 `agent/pre-step` 携带的 `modelSelection` 把本机刚改过的模型/思考强度推给
    远程（`session.selectModel`），避免这一轮仍用旧等级；远程回复再通过 watch 追加回来；
 5. 镜像打开时，本机会话头部选择器与远程会话的模型/思考强度双向同步：`syncPeerState` 每

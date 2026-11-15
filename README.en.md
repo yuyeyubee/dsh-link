@@ -3,7 +3,7 @@
 > One private relay of your own connects **DeepSeek Harness (DSH)** installations on several computers and an **Android phone** into a private space that belongs only to you: browse and drive another computer's DSH Sessions from this one, let the local agent steer a remote DSH with tools, and use voice input on the phone while recognition stays on the target computer.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Plugin](https://img.shields.io/badge/plugin-1.2.2-brightgreen)
+![Plugin](https://img.shields.io/badge/plugin-1.3.0-brightgreen)
 ![Protocol](https://img.shields.io/badge/protocol-v1-blue)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84)
 
@@ -19,6 +19,10 @@
 | --- | --- | --- |
 | **Mirrored remote workspaces** | Every online computer shows up under **Workspaces** as a `[Remote] <project> · <device>` group whose Session rows carry a **Remote** badge | Sidebar → Workspaces |
 | **Native remote conversation** | Remote messages, tool calls/results and turn state render in the normal DSH chat; tool cards stay collapsed by default and remote replies stream token by token. Sending from the native composer forwards the prompt to that computer | Click a remote Session |
+| **Session status** | A running remote turn shows a spinner on its sidebar row; a finished or failed turn keeps a green or red dot for 10 minutes, and queued message counts sit inline | Sidebar → Workspaces |
+| **Remote questions** | When the remote Agent asks a question, an answer card pops up locally (options, multi-select, custom answer) and the answer goes back to that question | Remote Session / popup |
+| **Image sending** | Paste or pick an image in a mirrored Session; it is uploaded with the prompt and appears in both transcripts | Native composer |
+| **Rich event mirroring** | Goal mode, plan state, task board, team board, approval cards, titles and model chips are mirrored as native Session events, so the local UI matches the remote one | Inside the remote Session |
 | **Cross-device manager** | One tab per computer (plus this one): search projects/Sessions, create Sessions, rename Sessions/projects, archive/unarchive, show archived, copy IDs, more actions | Sidebar → **Cross-device** |
 | **Remote Session settings** | Session title, model, reasoning effort, Agent preset and archive; model/reasoning effort sync both ways with the local selector | Gear next to the remote Session title (or on the Session row) |
 | **AI drives another computer** | 8 agent tools: list devices, list Sessions, read messages, create a Session, prompt and wait, cancel a turn, diagnostics | Just ask the AI in any DSH Session |
@@ -321,7 +325,7 @@ Deeper design notes live in [docs/architecture.md](docs/architecture.md); instal
 
 | Component | Version | Notes |
 | --- | --- | --- |
-| DSH Link plugin | 1.2.2 | Fixes offline restore and unarchive syncing: the archive direction is persisted as user intent and hidden mirrors come back intact; includes the streaming switch, cross-device manager and remote Session settings |
+| DSH Link plugin | 1.3.0 | Session status dots and running indicator, remote question forwarding, image sending, goal/task-board rich event mirroring, and steer-while-running instead of silent queueing |
 | Protocol | v1 | New fields are backwards compatible; new methods do not bump `v` |
 | Relay | 1.0.0 (protocol v1) | Node.js ≥ 20, single `ws` dependency |
 | Android app | 1.2.1 | minSdk 26 (Android 8.0+), protocol v1 (compatible with the 1.2.2 plugin) |
