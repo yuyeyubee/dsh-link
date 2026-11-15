@@ -678,6 +678,34 @@ function makeWorkspaceController(archived) {
   }
 }
 
+test('mirror mappings that alias one local Session are pruned to the oldest', () => {
+  const services = makeServices()
+  const host = makeHost(services)
+  const device = {
+    name: 'peer',
+    workspaces: {},
+    sessions: {
+      'session-real': {
+        localId: 'session-mirror-1',
+        remoteSeq: 120,
+        createdAt: '2026-11-09T13:51:07.816Z',
+        mirrorCursor: { remoteTurn: 3 },
+      },
+      'session-blank-leak': {
+        localId: 'session-mirror-1',
+        remoteSeq: -1,
+        createdAt: '2026-11-15T11:28:44.535Z',
+        lastForwardedTurn: 0,
+      },
+    },
+  }
+  assert.equal(host.pruneAliasedMappings(device), 1)
+  assert.deepEqual(Object.keys(device.sessions), ['session-real'])
+  // A single mapping per local Session is left untouched.
+  assert.equal(host.pruneAliasedMappings(device), 0)
+  assert.deepEqual(Object.keys(device.sessions), ['session-real'])
+})
+
 test('mirror sync never unarchives a known mirror Session', async () => {
   const services = makeServices()
   const registry = makeArchiveRegistry()

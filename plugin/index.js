@@ -132,6 +132,13 @@ const MIRROR_SYNC_INTERVAL_MS = 60_000
 const ARCHIVE_SNAPSHOT_TIMEOUT_MS = 20_000
 /** Deadline for replaying one local mirror log while checking its format. */
 const MIRROR_LOG_CHECK_TIMEOUT_MS = 20_000
+/**
+ * Page size used when replaying a mirror log for the format check.
+ *
+ * The whole log is validated to answer a page, but a one-message page is served
+ * without that replay, so a small page would report every log as healthy.
+ */
+const MIRROR_LOG_CHECK_MESSAGES = 8
 /** Backoff before retrying one mirror whose archive direction did not apply. */
 const ARCHIVE_RETRY_MS = 15_000
 /** Reconnect backoff bounds, in milliseconds. */
@@ -2024,11 +2031,41 @@ class LinkHost {
     return entry.logValid !== true || entry.writerVersion !== MIRROR_WRITER_VERSION
   }
 
+  /**
+   * Drop mappings that alias a local Session another mapping already owns.
+   *
+   * Two keys pointing at one local log make `mirrorForLocal` order-dependent: a
+   * prompt could be forwarded to whichever remote Session came first. The extra
+   * key is always written later, so the oldest mapping is the one to keep.
+   */
+  pruneAliasedMappings(device) {
+    const byLocalId = new Map()
+    for (const [remoteSessionId, entry] of Object.entries(device.sessions ?? {})) {
+      if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string') continue
+      const list = byLocalId.get(entry.localId) ?? []
+      list.push([remoteSessionId, entry])
+      byLocalId.set(entry.localId, list)
+    }
+    let dropped = 0
+    for (const list of byLocalId.values()) {
+      if (list.length < 2) continue
+      list.sort((left, right) => String(left[1].createdAt ?? '').localeCompare(String(right[1].createdAt ?? '')))
+      for (const [remoteSessionId] of list.slice(1)) {
+        delete device.sessions[remoteSessionId]
+        dropped += 1
+      }
+    }
+    if (dropped > 0) this.log('info', `dsh-link: dropped ${dropped} mirror mappings that aliased a local Session`)
+    return dropped
+  }
+
   /** Reattach known mirrors and archive local Sessions stranded in mirror dirs. */
   async repairMirrorSessions() {
     const registry = this.service('workspaceRegistry')
     if (registry === undefined) return
+    let pruned = 0
     for (const [deviceId, device] of Object.entries(this.mirrors.devices ?? {})) {
+      pruned += this.pruneAliasedMappings(device)
       for (const [remoteSessionId, entry] of Object.entries(device.sessions ?? {})) {
         if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string') continue
         if (typeof entry.workspaceId !== 'string') continue
@@ -2039,13 +2076,14 @@ class LinkHost {
         // A mirror written by an older writer can carry a tool/call that no
         // assistant message advertised; such a log fails every replay, so hide
         // the row and rebuild it from the remote once the peer is reachable.
-        if (this.mirrorNeedsCheck(entry) && (await this.mirrorLogCorrupt(entry.localId))) {
+        if (this.mirrorNeedsCheck(entry) && (await this.mirrorLogCorrupt(entry.localId)) === true) {
           entry.needsRebuild = true
           await registry.archiveSession(entry.localId, { stopActivity: true }).catch(() => {})
         }
       }
     }
     const root = join(dataDir(), 'mirrors')
+    if (pruned > 0) this.saveMirrorStore()
     let list
     try {
       list = await this.sessionList()
@@ -2063,17 +2101,26 @@ class LinkHost {
   /**
    * Whether one local mirror Session log cannot be replayed.
    *
-   * Only a format violation counts: the row can be rebuilt from the remote
-   * Session, while a missing or merely unreadable file is a different problem.
+   * Three outcomes, because "did not fail" is not the same as "verified":
+   * - `true` — the replay rejected the log, so the row must be rebuilt;
+   * - `false` — the replay accepted the whole log;
+   * - `undefined` — the check could not run (no Session service yet, or a
+   *   failure that is not a format violation), so no verdict may be recorded.
+   *
+   * The page size matters: a one-message page is answered without replaying the
+   * whole log, so it cannot see an early violation.
    */
   async mirrorLogCorrupt(localSessionId) {
     const sessions = this.service('sessions')
-    if (sessions === undefined) return false
+    if (sessions === undefined) return undefined
     try {
-      await sessions.events({ address: { kind: 'session', sessionId: localSessionId }, maxMessages: 1 }, AbortSignal.timeout(MIRROR_LOG_CHECK_TIMEOUT_MS))
+      await sessions.events({
+        address: { kind: 'session', sessionId: localSessionId },
+        maxMessages: MIRROR_LOG_CHECK_MESSAGES,
+      }, AbortSignal.timeout(MIRROR_LOG_CHECK_TIMEOUT_MS))
       return false
     } catch (error) {
-      return /is corrupt|SessionFormatError/i.test(errorMessage(error))
+      return /is corrupt|SessionFormatError/i.test(errorMessage(error)) ? true : undefined
     }
   }
 
@@ -2082,6 +2129,8 @@ class LinkHost {
    *
    * Mirrors are derived data, so the remote Session is the source of truth:
    * a fresh local id replays the remote history through the current writer.
+   * A log written by an older writer version is rebuilt without asking, because
+   * that writer is known to have produced logs no replay accepts.
    */
   async rebuildCorruptMirrors() {
     const rebuilt = []
@@ -2092,21 +2141,31 @@ class LinkHost {
         if (!this.mirrorNeedsCheck(entry)) continue
         // A queued append is half a log until it settles: check the settled one.
         await (this.mirrorQueues.get(entry.localId) ?? Promise.resolve()).catch(() => {})
-        if (!(await this.mirrorLogCorrupt(entry.localId))) {
-          entry.logValid = true
-          entry.writerVersion = MIRROR_WRITER_VERSION
-          continue
+        // A log from an older writer is rebuilt outright: that writer is known to
+        // have emitted events no replay accepts, and asking the replay first would
+        // only relaunder the same verdict when the check cannot run.
+        const legacyWriter = entry.writerVersion !== MIRROR_WRITER_VERSION
+        if (!legacyWriter) {
+          const corrupt = await this.mirrorLogCorrupt(entry.localId)
+          if (corrupt === false) {
+            entry.logValid = true
+            continue
+          }
+          // No verdict yet (service still composing): retry on the next sync.
+          if (corrupt === undefined) continue
         }
         try {
           if (await this.rebuildMirrorSession(deviceId, device, remoteSessionId, entry)) {
             // Rebuilding replays the remote history through the current writer;
-            // the log it wrote is only trusted once a replay accepts it.
-            if (await this.mirrorLogCorrupt(entry.localId)) {
+            // the log is only trusted once a replay accepts it.
+            const after = await this.mirrorLogCorrupt(entry.localId)
+            if (after === true) {
               entry.logValid = false
               entry.needsRebuild = true
               failed.push(entry.localId)
               continue
             }
+            if (after === undefined) this.log('warn', `dsh-link: rebuilt mirror ${entry.localId} could not be replayed for verification`)
             entry.logValid = true
             entry.writerVersion = MIRROR_WRITER_VERSION
             delete entry.needsRebuild
@@ -3672,9 +3731,14 @@ class LinkHost {
     const base = this.localMirrorId(deviceId, remoteSessionId)
     const nextLocalId = `${base}-${Date.now().toString(36)}`
     const oldLocalId = entry.localId
+    // Bind the mapping before the Session exists: a Session created inside a
+    // mirror Workspace fires `session/created`, and that hook binds an unmapped
+    // row there to a brand-new remote Session — which this rebuild would leak.
+    entry.localId = nextLocalId
     try {
       await sessions.create({ workspaceId: workspace.id, sessionId: nextLocalId })
     } catch (error) {
+      entry.localId = oldLocalId
       this.log('warn', `dsh-link: mirror rebuild ${remoteSessionId}: ${errorMessage(error)}`)
       return false
     }
