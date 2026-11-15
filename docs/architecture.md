@@ -67,8 +67,11 @@
    不再拼成展开的文本；工具参数与结果按原文镜像（上限 64 KiB），因为任务看板、计划摘要等
    原生视图需要解析完整 JSON；
 2a. 目标模式（`goal/change`）、计划状态（`plan/mode`）、任务看板（`todo/write`）、团队看板
-    （`team/*`）、审批卡（`approval/*`）、标题与模型/预设标记等富事件按原始事件名追加到本机
+    （`team/*`）、审批卡（`approval/*`）、模型/预设标记等富事件按原始事件名追加到本机
     会话日志，本机原生投影与远端一致；模型请求与 LLM 重试记账不透传；
+    按 seq 互相引用的事件（`session/title` 的 `messageSeqs`、`compaction/*` 的
+    `shadowedRange`）不透传——镜像日志有自己的 seq 空间，远程 seq 会指向别的本机事件，
+    整份日志会被回放拒绝；标题改由 `session.history` 的 title + 重命名通道同步；
 2b. 远程状态（`running` / 排队数 / 待回答问题）由 `session.list`、follow 的 `state` 帧与
     提问转发维护在 Host 内存中，Web UI 每 3 秒轮询 `mirrorStatus`，在会话行渲染转圈/绿点/
     红点；待回答问题同时注册为 DSH 原生 pending interaction，侧栏显示「等待回答」；

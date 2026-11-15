@@ -4,7 +4,7 @@
 Android App 连接这些电脑。完整项目、relay 部署、Android App 与使用说明见
 [仓库根目录 README](../README.md)；协议契约见 [`../protocol/PROTOCOL.md`](../protocol/PROTOCOL.md)。
 
-插件版本 **1.3.2**，协议 **v1**。
+插件版本 **1.3.3**，协议 **v1**。
 
 ## 安装
 

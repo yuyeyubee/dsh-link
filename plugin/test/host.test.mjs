@@ -278,7 +278,7 @@ test('local methods map sessions, history, state, and workspaces', async () => {
   const history = await host.invokeLocal('session.history', { sessionId: 'session-a' })
   assert.equal(history.cursor, 6)
   assert.equal(history.title, '测试会话')
-  assert.deepEqual(history.records.map((record) => record.kind), ['event', 'user', 'assistant', 'tool-call', 'tool-result', 'turn-end'])
+  assert.deepEqual(history.records.map((record) => record.kind), ['user', 'assistant', 'tool-call', 'tool-result', 'turn-end'])
   assert.equal(history.records.find((record) => record.kind === 'user').text, '你好')
 
   const created = await host.invokeLocal('session.create', { cwd: '/tmp/project' })
@@ -300,7 +300,9 @@ test('follow streams a snapshot, records, and state frames', async () => {
   for await (const frame of host.followSession('session-a', new AbortController().signal)) frames.push(frame)
   assert.equal(frames[0].t, 'ready')
   const snapshot = frames.find((frame) => frame.t === 'snapshot')
-  assert.equal(snapshot.records.length, 3)
+  // The remote title is a Session-level fact here, not a record: a mirrored
+  // title event would cite remote seqs this log does not have.
+  assert.equal(snapshot.records.length, 2)
   assert.equal(snapshot.cursor, 5)
   const kinds = frames.filter((frame) => frame.t === 'record').map((frame) => frame.record.kind)
   assert.deepEqual(kinds, ['tool-call', 'tool-result', 'turn-end'])
@@ -417,6 +419,87 @@ test('mirror records append native tool events instead of folded text', () => {
   assert.equal(assistant.data.step, 1)
   assert.ok(!session.events.some((event) => event.type === 'assistant/message'
     && event.data.message.content.some((block) => block.type === 'text' && block.text.includes('远程工具调用'))))
+})
+
+test('mirror keeps a Turn and Step the log already opened', () => {
+  const services = makeServices()
+  const host = makeHost(services)
+  const session = makeFakeSession('session-cursor')
+  services.liveSessions.set('session-cursor', session)
+  // The persisted cursor claims both are closed while the log has them open —
+  // exactly what a process killed between the log append and the store save
+  // leaves behind.
+  const entry = {
+    localId: 'session-cursor',
+    remoteSeq: -1,
+    pendingUserTexts: [],
+    mirrorCursor: { localTurn: 1, localStep: 1, turnOpen: false, stepOpen: false, remoteTurn: 1, remoteStep: 1 },
+  }
+  host.appendMirrorRecords(entry, [
+    { kind: 'turn-start', seq: 1, time: 1, turn: 1 },
+    { kind: 'user', seq: 2, time: 2, text: '开始' },
+    { kind: 'assistant', seq: 3, time: 3, turn: 1, step: 1, text: '好' },
+  ])
+  assert.deepEqual(session.events.map((event) => event.type), [
+    'turn/start', 'user/message', 'step/start', 'assistant/message',
+  ])
+  // A second batch must continue the open Step instead of opening another Turn.
+  host.appendMirrorRecords(entry, [
+    { kind: 'assistant', seq: 4, time: 4, turn: 1, step: 1, text: '继续' },
+  ])
+  assert.deepEqual(session.events.map((event) => event.type), [
+    'turn/start', 'user/message', 'step/start', 'assistant/message', 'assistant/message',
+  ])
+  host.appendMirrorRecords(entry, [{ kind: 'turn-end', seq: 5, time: 5, turn: 1, reason: 'completed' }])
+  assert.deepEqual(session.events.map((event) => event.type), [
+    'turn/start', 'user/message', 'step/start', 'assistant/message', 'assistant/message', 'step/end', 'turn/end',
+  ])
+})
+
+test('mirror drops events that cite remote seqs', () => {
+  const services = makeServices()
+  const host = makeHost(services)
+  const session = makeFakeSession('session-seq')
+  services.liveSessions.set('session-seq', session)
+  const entry = { localId: 'session-seq', remoteSeq: -1, pendingUserTexts: [] }
+  host.appendMirrorRecords(entry, [
+    { kind: 'turn-start', seq: 1, time: 1, turn: 1 },
+    { kind: 'user', seq: 2, time: 2, text: '你好' },
+    { kind: 'event', seq: 3, time: 3, type: 'session/title', data: JSON.stringify({ title: '远程标题', messageSeqs: [2], source: { kind: 'provider' } }) },
+    { kind: 'event', seq: 4, time: 4, type: 'compaction/start', data: JSON.stringify({ compactionId: 'c1', turn: 1 }) },
+    { kind: 'event', seq: 5, time: 5, type: 'command/done', data: JSON.stringify({ commandId: 'cmd-1', kind: 'success', sourceEventSeq: 2 }) },
+    { kind: 'event', seq: 6, time: 6, type: 'command/run', data: JSON.stringify({ commandId: 'cmd-2', name: 'help' }) },
+    { kind: 'event', seq: 7, time: 7, type: 'command/done', data: JSON.stringify({ commandId: 'cmd-2', kind: 'success', sourceEventSeq: 2 }) },
+  ])
+  const types = session.events.map((event) => event.type)
+  assert.ok(!types.includes('session/title'))
+  assert.ok(!types.includes('compaction/start'))
+  // A done without a mirrored run names no lifecycle, so it never lands.
+  assert.ok(!session.events.some((event) => event.type === 'command/done' && event.data.commandId === 'cmd-1'))
+  const adopted = session.events.find((event) => event.type === 'command/done' && event.data.commandId === 'cmd-2')
+  assert.ok(adopted !== undefined)
+  // The remote sourceEventSeq would point at a different local event.
+  assert.equal(adopted.data.sourceEventSeq, undefined)
+})
+
+test('mirror settles a tool call whose result never arrives', () => {
+  const services = makeServices()
+  const host = makeHost(services)
+  const session = makeFakeSession('session-abort')
+  services.liveSessions.set('session-abort', session)
+  const entry = { localId: 'session-abort', remoteSeq: -1, pendingUserTexts: [] }
+  host.appendMirrorRecords(entry, [
+    { kind: 'turn-start', seq: 1, time: 1, turn: 1 },
+    { kind: 'user', seq: 2, time: 2, text: '跑一下' },
+    { kind: 'tool-call', seq: 3, time: 3, turn: 1, step: 1, callId: 'c9', name: 'bash', args: '{"command":"ls"}' },
+  ])
+  host.appendMirrorRecords(entry, [{ kind: 'turn-end', seq: 4, time: 4, turn: 1, reason: 'aborted' }])
+  const result = session.events.find((event) => event.type === 'tool/result')
+  assert.equal(result.data.message.toolCallId, 'c9')
+  assert.equal(result.data.message.isError, true)
+  // The repair result lands before the Step closes.
+  const types = session.events.map((event) => event.type)
+  assert.ok(types.indexOf('tool/result') < types.indexOf('step/end'))
 })
 
 test('mirror replays and settles live assistant frames', () => {

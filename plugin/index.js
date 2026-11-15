@@ -34,7 +34,7 @@ export const name = 'dsh-link'
 export const inject = ['tools', 'systemPrompt', 'credentials']
 
 /** Version reported to peers and the Web UI. */
-const VERSION = '1.3.2'
+const VERSION = '1.3.3'
 /** On-disk config document version. */
 const CONFIG_VERSION = 1
 /** Same-origin API route used by the Client half. */
@@ -76,9 +76,18 @@ const MAX_EVENT_BYTES = 32 * 1024
 /**
  * Session events mirrored verbatim, so the local Session log carries the same
  * durable facts the remote one does and native projections render (goal bar,
- * plan chip, task board, team roster, approval cards, titles, model chips).
+ * plan chip, task board, team roster, approval cards, model chips).
  * Deliberately excluded: model requests (`request/header`), raw LLM retry
  * bookkeeping, and anything whose payload is not self-contained.
+ *
+ * A mirrored event must also stay readable in *this* log, whose seq space is its
+ * own. Events that cite other events by seq therefore cannot travel: a remote
+ * `seq` names a different local event, so a replay rejects the whole log.
+ * - `session/title` cites `messageSeqs`; titles already arrive through
+ *   `renameMirror` (the remote title in `session.history`), which writes a
+ *   user-source title this log accepts.
+ * - `compaction/*` cites the shadowed surface span by seq.
+ * - `command/done` is reduced to its command id before it is appended.
  */
 const MIRROR_EVENT_TYPES = new Set([
   'agent-preset/selected',
@@ -87,9 +96,6 @@ const MIRROR_EVENT_TYPES = new Set([
   'approval/policy',
   'command/done',
   'command/run',
-  'compaction/end',
-  'compaction/start',
-  'compaction/summary',
   'goal/change',
   'job/registered',
   'job/settled',
@@ -98,7 +104,6 @@ const MIRROR_EVENT_TYPES = new Set([
   'plan/mode',
   'sandbox/mode',
   'schedule/change',
-  'session/title',
   'subagent/catalog',
   'subagent/descriptor',
   'team/member',
@@ -112,6 +117,15 @@ const MIRROR_EVENT_TYPES = new Set([
 const MAX_MIRROR_SESSIONS = 10
 /** Mirror mapping format; v2 groups remote projects as separate workspaces. */
 const MIRROR_STORE_VERSION = 2
+/**
+ * Version of the code that writes a mirror log.
+ *
+ * A mirror log is append-only derived data: once a writer version turned out to
+ * emit events no replay accepts, the only cure is regenerating the log. The
+ * stamp on each mapping entry makes an upgrade re-check every mirror written by
+ * an older writer exactly once.
+ */
+const MIRROR_WRITER_VERSION = 3
 /** How often peers are re-listed while connected, in milliseconds. */
 const MIRROR_SYNC_INTERVAL_MS = 60_000
 /** How long one archive reconcile waits for a peer's archive baseline. */
@@ -1998,6 +2012,18 @@ class LinkHost {
     this.mirrorTimer.unref?.()
   }
 
+  /**
+   * Whether one mirror mapping still needs its log replayed once.
+   *
+   * A mapping only records what the writer believed when it wrote the entry, so
+   * a mirror written by an older writer version is re-checked even when it was
+   * stamped valid — the version that stamped it may have produced a log no
+   * replay accepts, and a rebuild is the only way to regenerate it.
+   */
+  mirrorNeedsCheck(entry) {
+    return entry.logValid !== true || entry.writerVersion !== MIRROR_WRITER_VERSION
+  }
+
   /** Reattach known mirrors and archive local Sessions stranded in mirror dirs. */
   async repairMirrorSessions() {
     const registry = this.service('workspaceRegistry')
@@ -2013,7 +2039,7 @@ class LinkHost {
         // A mirror written by an older writer can carry a tool/call that no
         // assistant message advertised; such a log fails every replay, so hide
         // the row and rebuild it from the remote once the peer is reachable.
-        if (entry.logValid !== true && (await this.mirrorLogCorrupt(entry.localId))) {
+        if (this.mirrorNeedsCheck(entry) && (await this.mirrorLogCorrupt(entry.localId))) {
           entry.needsRebuild = true
           await registry.archiveSession(entry.localId, { stopActivity: true }).catch(() => {})
         }
@@ -2063,14 +2089,26 @@ class LinkHost {
     for (const [deviceId, device] of Object.entries(this.mirrors.devices ?? {})) {
       for (const [remoteSessionId, entry] of Object.entries(device.sessions ?? {})) {
         if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string') continue
-        if (entry.logValid === true) continue
+        if (!this.mirrorNeedsCheck(entry)) continue
+        // A queued append is half a log until it settles: check the settled one.
+        await (this.mirrorQueues.get(entry.localId) ?? Promise.resolve()).catch(() => {})
         if (!(await this.mirrorLogCorrupt(entry.localId))) {
           entry.logValid = true
+          entry.writerVersion = MIRROR_WRITER_VERSION
           continue
         }
         try {
           if (await this.rebuildMirrorSession(deviceId, device, remoteSessionId, entry)) {
+            // Rebuilding replays the remote history through the current writer;
+            // the log it wrote is only trusted once a replay accepts it.
+            if (await this.mirrorLogCorrupt(entry.localId)) {
+              entry.logValid = false
+              entry.needsRebuild = true
+              failed.push(entry.localId)
+              continue
+            }
             entry.logValid = true
+            entry.writerVersion = MIRROR_WRITER_VERSION
             delete entry.needsRebuild
             rebuilt.push(entry.localId)
           } else {
@@ -2376,35 +2414,136 @@ class LinkHost {
     return last
   }
 
-  /** Lazily create the remote→local Turn/Step cursor of one mirror entry. */
-  mirrorCursor(entry) {
+  /**
+   * Read the local Turn/Step position back from a mirror log.
+   *
+   * The mirror store is saved after the log is appended, so a persisted "the
+   * Turn is closed" flag can survive a process that already opened one. Opening
+   * a second Turn inside an open Turn (or a Step inside a closed Turn) writes a
+   * log no replay accepts, so the log itself is the only trustworthy source.
+   */
+  mirrorLocalCursor(session) {
+    const events = session.snapshotEvents()
+    let localTurn = 0
+    let turnOpen = false
+    let nearestStep
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index]
+      if (nearestStep === undefined && (event.type === 'step/start' || event.type === 'step/end')) nearestStep = event
+      if (event.type === 'turn/start' || event.type === 'turn/end') {
+        localTurn = Number.isFinite(event.data?.turn) ? event.data.turn : 0
+        turnOpen = event.type === 'turn/start'
+        break
+      }
+    }
+    // A Step only counts inside the open Turn: Steps of a closed Turn were
+    // already ended with it, and the next Turn starts its numbering at zero.
+    const inside = turnOpen && nearestStep !== undefined && nearestStep.data?.turn === localTurn
+    const localStep = inside && Number.isFinite(nearestStep.data?.step) ? nearestStep.data.step : 0
+    const stepOpen = inside && nearestStep.type === 'step/start'
+    return { localTurn, localStep, turnOpen, stepOpen }
+  }
+
+  /**
+   * Lazily create the remote→local Turn/Step cursor of one mirror entry.
+   *
+   * Only `remoteTurn`/`remoteStep` are durable: the local coordinates are
+   * re-derived from the mirror log whenever a live Session is at hand.
+   */
+  mirrorCursor(entry, session) {
     if (entry.mirrorCursor === null || typeof entry.mirrorCursor !== 'object') entry.mirrorCursor = {}
     const cursor = entry.mirrorCursor
-    if (!Number.isFinite(cursor.localTurn)) cursor.localTurn = 0
-    if (!Number.isFinite(cursor.localStep)) cursor.localStep = 0
-    if (typeof cursor.turnOpen !== 'boolean') cursor.turnOpen = false
-    if (typeof cursor.stepOpen !== 'boolean') cursor.stepOpen = false
+    const local = session === undefined ? undefined : this.mirrorLocalCursor(session)
+    if (local === undefined) {
+      if (!Number.isFinite(cursor.localTurn)) cursor.localTurn = 0
+      if (!Number.isFinite(cursor.localStep)) cursor.localStep = 0
+      if (typeof cursor.turnOpen !== 'boolean') cursor.turnOpen = false
+      if (typeof cursor.stepOpen !== 'boolean') cursor.stepOpen = false
+      return cursor
+    }
+    cursor.localTurn = local.localTurn
+    cursor.localStep = local.localStep
+    cursor.turnOpen = local.turnOpen
+    cursor.stepOpen = local.stepOpen
     return cursor
   }
 
+  /**
+   * Tool calls this mirror log advertised and started but never resolved.
+   *
+   * Read back from the log, so a restarted Host still knows which remote result
+   * belongs to a call it wrote earlier, and a result whose call never reached
+   * this log is not appended on its own (it would have no lifecycle here).
+   */
+  mirrorOpenToolCalls(session) {
+    const open = {}
+    for (const event of session.snapshotEvents()) {
+      if (event.type === 'assistant/message') {
+        for (const block of Array.isArray(event.data?.message?.content) ? event.data.message.content : []) {
+          if (block?.type === 'tool-call' && typeof block.id === 'string') open[block.id] = false
+        }
+      } else if (event.type === 'tool/call' && typeof event.data?.callId === 'string') {
+        open[event.data.callId] = true
+      } else if (event.type === 'tool/result' && typeof event.data?.message?.toolCallId === 'string') {
+        delete open[event.data.message.toolCallId]
+      }
+    }
+    for (const [callId, started] of Object.entries(open)) if (started !== true) delete open[callId]
+    return open
+  }
+
+  /**
+   * Settle tool calls that were mirrored but never received a result.
+   *
+   * A Step cannot close while an advertised call is unresolved, and a remote
+   * Turn that aborted mid-tool leaves exactly that gap. The log accepts a plain
+   * failed result, so the local Step is closed with one.
+   */
+  settleMirrorToolCalls(session, cursor, entry) {
+    const open = entry.openToolCalls
+    if (open === null || typeof open !== 'object') return
+    const callIds = Object.keys(open)
+    if (callIds.length === 0) return
+    for (const callId of callIds) {
+      try {
+        session.append('tool/result', {
+          turn: cursor.localTurn,
+          step: cursor.localStep,
+          message: {
+            id: randomUUID(),
+            role: 'tool',
+            source: { kind: 'tool', callId },
+            toolCallId: callId,
+            content: [{ type: 'text', text: '远程会话在这一步中断，没有返回工具结果。' }],
+            isError: true,
+          },
+        }, { surfaceOp: 'append' })
+      } catch (error) {
+        this.log('warn', `dsh-link: mirror settle ${callId}: ${errorMessage(error)}`)
+      }
+      delete open[callId]
+    }
+  }
+
   /** Close the open local Step of one mirror cursor. */
-  closeMirrorStep(session, cursor) {
+  closeMirrorStep(session, cursor, entry) {
     if (cursor.stepOpen !== true) return
+    if (entry !== undefined) this.settleMirrorToolCalls(session, cursor, entry)
     session.append('step/end', { turn: cursor.localTurn, step: cursor.localStep })
     cursor.stepOpen = false
   }
 
   /** Close the open local Turn of one mirror cursor. */
-  closeMirrorTurn(session, cursor, reason = 'completed') {
-    this.closeMirrorStep(session, cursor)
+  closeMirrorTurn(session, cursor, reason = 'completed', entry) {
+    this.closeMirrorStep(session, cursor, entry)
     if (cursor.turnOpen !== true) return
     session.append('turn/end', { turn: cursor.localTurn, reason: { kind: reason } })
     cursor.turnOpen = false
   }
 
   /** Open the next local Turn that represents one remote Turn. */
-  openMirrorTurn(session, cursor, remoteTurn) {
-    this.closeMirrorTurn(session, cursor)
+  openMirrorTurn(session, cursor, remoteTurn, entry) {
+    this.closeMirrorTurn(session, cursor, 'completed', entry)
     cursor.localTurn = this.mirrorLastTurn(session) + 1
     cursor.remoteTurn = Number.isFinite(remoteTurn) ? remoteTurn : cursor.remoteTurn
     cursor.localStep = 0
@@ -2414,12 +2553,12 @@ class LinkHost {
   }
 
   /** Translate remote turn/step coordinates to open local boundaries. */
-  ensureMirrorStep(session, cursor, remoteTurn, remoteStep) {
+  ensureMirrorStep(session, cursor, remoteTurn, remoteStep, entry) {
     const turn = Number.isFinite(remoteTurn) ? remoteTurn : cursor.remoteTurn
-    if (cursor.turnOpen !== true || cursor.remoteTurn !== turn) this.openMirrorTurn(session, cursor, turn)
+    if (cursor.turnOpen !== true || cursor.remoteTurn !== turn) this.openMirrorTurn(session, cursor, turn, entry)
     if (!Number.isFinite(remoteStep)) return { turn: cursor.localTurn, step: cursor.localStep }
     if (cursor.stepOpen !== true || cursor.remoteStep !== remoteStep) {
-      this.closeMirrorStep(session, cursor)
+      this.closeMirrorStep(session, cursor, entry)
       cursor.localStep += 1
       cursor.remoteStep = remoteStep
       session.append('step/start', { turn: cursor.localTurn, step: cursor.localStep })
@@ -2510,9 +2649,18 @@ class LinkHost {
   appendMirrorRecords(entry, records) {
     const session = this.service('sessions')?.get(entry.localId)
     if (session === undefined) return []
-    const cursor = this.mirrorCursor(entry)
+    const cursor = this.mirrorCursor(entry, session)
     const pending = Array.isArray(entry.pendingUserTexts) ? entry.pendingUserTexts : []
     if (entry.toolCallSeqs === null || typeof entry.toolCallSeqs !== 'object') entry.toolCallSeqs = {}
+    if (entry.openToolCalls === null || typeof entry.openToolCalls !== 'object') entry.openToolCalls = {}
+    // `command/done` only replays next to its own `command/run`, and a repeated
+    // command id is rejected, so only ids this log already holds are mirrored.
+    const mirroredCommands = new Set()
+    for (const event of session.snapshotEvents()) {
+      if (event.type === 'command/run' && typeof event.data?.commandId === 'string') mirroredCommands.add(event.data.commandId)
+    }
+    // Calls the log already started decide whether an incoming result belongs here.
+    entry.openToolCalls = this.mirrorOpenToolCalls(session)
     const appended = []
     for (const record of records) {
       try {
@@ -2531,7 +2679,7 @@ class LinkHost {
             appended.push(record)
             continue
           }
-          if (cursor.turnOpen !== true) this.openMirrorTurn(session, cursor, cursor.remoteTurn)
+          if (cursor.turnOpen !== true) this.openMirrorTurn(session, cursor, cursor.remoteTurn, entry)
           session.append('user/message', {
             id: randomUUID(),
             role: 'user',
@@ -2543,13 +2691,13 @@ class LinkHost {
         }
         if (record.kind === 'turn-start') {
           const remoteTurn = Number.isFinite(record.turn) ? record.turn : cursor.remoteTurn
-          if (cursor.turnOpen !== true || cursor.remoteTurn !== remoteTurn) this.openMirrorTurn(session, cursor, remoteTurn)
+          if (cursor.turnOpen !== true || cursor.remoteTurn !== remoteTurn) this.openMirrorTurn(session, cursor, remoteTurn, entry)
           appended.push(record)
           continue
         }
         if (record.kind === 'turn-end') {
           const reason = record.reason === 'completed' ? 'completed' : record.reason === 'aborted' ? 'aborted' : record.reason === 'error' ? 'error' : 'completed'
-          this.closeMirrorTurn(session, cursor, reason)
+          this.closeMirrorTurn(session, cursor, reason, entry)
           this.markMirrorTurnSettled(entry, reason)
           appended.push(record)
           continue
@@ -2569,6 +2717,17 @@ class LinkHost {
           if (payload !== null && typeof payload === 'object' && !Array.isArray(payload)) {
             // Rich events are log facts, not Turn content: appending them keeps
             // native projections (goal, plan, todo, team, approval) in step.
+            // Sequence references into the remote log are dropped: this log has
+            // its own seq space, and a dangling reference rejects the log.
+            if (type === 'command/done' && payload.sourceEventSeq !== undefined) {
+              payload = { ...payload }
+              delete payload.sourceEventSeq
+            }
+            if (type === 'command/done' && !mirroredCommands.has(payload.commandId)) {
+              appended.push(record)
+              continue
+            }
+            if (type === 'command/run' && typeof payload.commandId === 'string') mirroredCommands.add(payload.commandId)
             session.append(type, payload)
           }
           appended.push(record)
@@ -2576,9 +2735,13 @@ class LinkHost {
         }
         // Older Hosts omit turn/step on message and tool records; keep one
         // inferred Step per Turn so these still render as native tool cards.
+        // A result whose call this log never started names no lifecycle here,
+        // so it is dropped before it can open a Step nobody fills.
+        if (record.kind === 'tool-result'
+          && (typeof record.callId !== 'string' || record.callId.length === 0 || entry.openToolCalls[record.callId] !== true)) continue
         const remoteTurn = Number.isFinite(record.turn) ? record.turn : cursor.remoteTurn
         const remoteStep = Number.isFinite(record.step) ? record.step : (cursor.remoteStep ?? 1)
-        const coordinates = this.ensureMirrorStep(session, cursor, remoteTurn, remoteStep)
+        const coordinates = this.ensureMirrorStep(session, cursor, remoteTurn, remoteStep, entry)
         if (record.kind === 'assistant') {
           const content = []
           if (typeof record.reasoning === 'string' && record.reasoning.length > 0) content.push({ type: 'reasoning', text: record.reasoning })
@@ -2627,12 +2790,16 @@ class LinkHost {
             arguments: toolArguments,
           })
           entry.toolCallSeqs[callId] = call.seq
+          entry.openToolCalls[callId] = true
           const callIds = Object.keys(entry.toolCallSeqs)
           if (callIds.length > 400) for (const old of callIds.slice(0, callIds.length - 400)) delete entry.toolCallSeqs[old]
         } else if (record.kind === 'tool-result') {
           const callSeq = typeof record.callId === 'string' && record.callId.length > 0 ? entry.toolCallSeqs[record.callId] : undefined
-          // Without a callId the result can never satisfy the tool lifecycle.
+          // A result needs the call this log started: without one it names no
+          // lifecycle here, and the replay rejects the whole log.
           if (typeof record.callId !== 'string' || record.callId.length === 0) continue
+          if (entry.openToolCalls[record.callId] !== true) continue
+          delete entry.openToolCalls[record.callId]
           const message = {
             id: randomUUID(),
             role: 'tool',
@@ -2715,8 +2882,8 @@ class LinkHost {
   publishMirrorAssistantStart(entry, session, attempt) {
     if (!this.streamingEnabled()) return
     const stream = this.mirrorStream(entry)
-    const cursor = this.mirrorCursor(entry)
-    const coordinates = this.ensureMirrorStep(session, cursor, attempt.turn, attempt.step)
+    const cursor = this.mirrorCursor(entry, session)
+    const coordinates = this.ensureMirrorStep(session, cursor, attempt.turn, attempt.step, entry)
     stream.attemptId = typeof attempt.attemptId === 'string' ? attempt.attemptId : undefined
     stream.started = true
     stream.turn = coordinates.turn
@@ -3017,6 +3184,8 @@ class LinkHost {
       createdAt: new Date().toISOString(),
       workspaceId: remoteWorkspaceId,
       lastForwardedTurn: turn,
+      // A fresh log is written by the current writer, so it needs no check.
+      writerVersion: MIRROR_WRITER_VERSION,
     }
     device.sessions[remoteSessionId] = entry
     this.mirrors.devices[deviceId] = device
@@ -3211,6 +3380,8 @@ class LinkHost {
           updatedAt: item.updatedAt ?? 0,
           createdAt: new Date().toISOString(),
           workspaceId: target.key,
+          // A fresh log is written by the current writer, so it needs no check.
+          writerVersion: MIRROR_WRITER_VERSION,
         }
         device.sessions[remoteSessionId] = entry
         // A new mirror adopts the remote archive state immediately, so an
@@ -3521,6 +3692,7 @@ class LinkHost {
     entry.pendingUserTexts = []
     entry.mirrorCursor = undefined
     entry.toolCallSeqs = undefined
+    entry.openToolCalls = undefined
     entry.lastCommittedAssistant = undefined
     entry.mirrorStream = undefined
     await this.syncMirrorHistory({ id: deviceId, name: device.name ?? deviceId }, entry, remoteSessionId)
