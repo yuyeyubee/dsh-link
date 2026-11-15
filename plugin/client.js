@@ -511,7 +511,14 @@ window.__ModuleLoader__.load({
       },
     }
 
-    /** Scoped styles; colors come only from host theme tokens. */
+    /**
+     * Document-level stylesheet; colors come only from host theme tokens.
+     * It is mounted once from `apply` rather than rendered by a component: the
+     * sidebar row gear, the conversation-header gear and the remote mark live
+     * in slots that outlive the `main` panel, and a `<style>` rendered inside
+     * that panel disappears as soon as a conversation takes the `main` slot,
+     * leaving those controls on the browser's default `<button>` styles.
+     */
     const CSS = `
       .dsh-link-page { position: relative; box-sizing: border-box; width: 100%; height: 100%; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); font-size: 14px; line-height: 1.6; }
       .dsh-link-page *, .dsh-link-settings-page * { box-sizing: border-box; }
@@ -773,8 +780,14 @@ window.__ModuleLoader__.load({
       .dsh-link-sidebar-rail-btn { display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; border: 0; border-radius: 7px; background: transparent; color: var(--dsw-alias-label-secondary); cursor: pointer; }
       .dsh-link-sidebar-rail-btn:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 
+      /* Conversation-header chip only; sidebar rows use the quieter glyph below. */
       .dsh-link-remote-chip { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 999px; border: .5px solid var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); background: var(--dsw-alias-bg-layer-2); font-size: 10px; font-weight: 600; line-height: 1; letter-spacing: .02em; white-space: nowrap; flex: none; }
       .dsh-link-remote-chip.is-header { height: 22px; padding: 0 8px; font-size: 11px; font-weight: 500; }
+      /* A sidebar row annotates, it does not advertise: the group header already
+         names the device, so a row carries one quiet glyph in a fixed box, set
+         like the native pin indicator (label-caption) rather than a filled pill
+         that outshouts the title it annotates. */
+      .dsh-link-remote-mark { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 16px; color: var(--dsw-alias-label-caption); }
       .dsh-link-native-gear.is-header.is-question { width: auto; padding: 0 8px; font-size: 11px; font-weight: 600; color: var(--dsw-alias-state-warn-label); }
       .dsh-link-status-dot { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; color: var(--dsw-alias-state-idle-primary); }
       .dsh-link-status-dot.is-running { color: var(--dsw-alias-state-business-primary); }
@@ -1221,9 +1234,11 @@ window.__ModuleLoader__.load({
             title: t('mirror.statusQueued', { n: queued }),
           }, String(queued)) : null,
           React.createElement('span', {
-            className: 'dsh-link-remote-chip',
-            title: `${mirror.deviceName ?? ''}`,
-          }, t('mirror.badge')),
+            className: 'dsh-link-remote-mark',
+            title: `${t('mirror.badge')} · ${mirror.deviceName ?? ''}`,
+            'aria-label': `${t('mirror.badge')} · ${mirror.deviceName ?? ''}`,
+            role: 'img',
+          }, React.createElement(DeviceGlyph, { size: 12 })),
         )
       }
     }
@@ -2806,7 +2821,6 @@ window.__ModuleLoader__.load({
       const target = useRemoteSettingsTarget()
       if (target === null) return null
       return h(React.Fragment, null,
-        h('style', null, CSS),
         h(Sheet, {
           t,
           title: t('remoteSettings.title'),
@@ -2952,7 +2966,6 @@ window.__ModuleLoader__.load({
       const target = useQuestionTarget()
       if (target === null) return null
       return h(React.Fragment, null,
-        h('style', null, CSS),
         h(QuestionCard, {
           key: `${target.sessionId}:${target.questionId}`,
           t,
@@ -4161,7 +4174,6 @@ window.__ModuleLoader__.load({
           )
         }
         return h('div', { className: pageClass },
-          h('style', null, CSS),
           compact ? h('div', { className: 'dsh-link-sidebar-head' },
             h('span', { className: 'dsh-link-sidebar-title' }, t('workspace.label')),
             h('div', { className: 'dsh-link-sidebar-head-actions' },
@@ -4248,7 +4260,6 @@ window.__ModuleLoader__.load({
       return function LinkSettingsPage() {
         useLocale(ctx)
         return h('div', { className: 'dsh-link-settings-page' },
-          h('style', null, CSS),
           h(LinkSettingsPanel, { ctx, t, variant: 'page' }),
         )
       }
@@ -4257,6 +4268,17 @@ window.__ModuleLoader__.load({
     return {
       inject: ['slots', 'locale', 'uiWorkspace', 'uiSession'],
       apply(ctx) {
+        // Every slot this bundle decorates shares one stylesheet, so it belongs
+        // to the plugin lifetime, not to any one panel's mount.
+        ctx.effect(() => {
+          if (typeof document === 'undefined') return undefined
+          const style = document.createElement('style')
+          style.dataset.dshLink = 'stylesheet'
+          style.textContent = CSS
+          document.head.appendChild(style)
+          return () => { style.remove() }
+        }, 'dsh-link: stylesheet')
+
         ctx.effect(() => ctx.locale.register(NS, {
           zh: LOCALE_DICTS.zh,
           en: LOCALE_DICTS.en,
