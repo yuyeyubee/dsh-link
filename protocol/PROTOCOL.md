@@ -166,7 +166,7 @@ relay 向被调方发 `{ "t":"unsub", "rid":"r7" }`，被调方必须中止对�
 ```json
 {
   "deviceId": "dev_xxx", "name": "家里的 MacBook", "platform": "macos",
-  "version": "1.3.1", "dshVersion": "0.2.2-rc.1", "time": 1762531200000,
+  "version": "1.3.2", "dshVersion": "0.2.2-rc.1", "time": 1762531200000,
   "workspaceDefault": "/Users/me/project", "workspaceCount": 3,
   "capabilities": ["sessions", "speech"],
   "speech": { "available": true, "providers": ["sensevoice-local"], "language": "zh" }
@@ -372,7 +372,7 @@ Host 把 DSH 会话事件映射为下表的记录；**只读**，不改变本地
   "speech": { "available": true, "phase": "ready", "language": "zh" },
   "settings": { "streaming": true },
   "mirrors": [ { "localSessionId", "deviceId", "deviceName", "remoteSessionId", "title" } ],
-  "version": "1.3.1"
+  "version": "1.3.2"
 }
 ```
 
