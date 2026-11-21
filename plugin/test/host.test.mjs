@@ -1429,6 +1429,82 @@ test('a question nobody can answer delegates to the shipped answerers', async ()
   assert.equal(result, 'NEXT')
 })
 
+test('a peer question relayed as a peer object still finds its mirror row', async () => {
+  const { host } = makeMirrorHost()
+  const sent = []
+  // The relay forwards the caller as `{ id, name }`, not as a bare device id.
+  host.handleQuestionCall({ send: (frame) => sent.push(frame) }, 'r1', { id: 'dev_peer', name: '出差笔记本' }, {
+    questionId: 'dev_peer:session-remote:call-9',
+    sessionId: 'session-remote',
+    callId: 'call-9',
+    questions: [{ id: 'q1', question: '继续吗？', options: [{ label: 'A' }] }],
+  })
+  assert.equal(host.mirrorQuestion('session-mirror').questionId, 'dev_peer:session-remote:call-9')
+  assert.equal(sent.length, 0, 'an accepted question holds its reply until answered or cancelled')
+  host.cancelQuestion('dev_peer:session-remote:call-9')
+})
+
+test('a blocking question without a call id is still offered to peers', async () => {
+  const { host } = makeMirrorHost()
+  host.relay = { state: 'connected' }
+  const asked = []
+  host.remoteCall = async (_peerId, method, params) => {
+    asked.push([method, params])
+    if (method === 'session.question') return { answers: [{ id: 'q1', selected: ['A'] }] }
+    return {}
+  }
+  const result = await host.handlePeerQuestion({
+    agent: { session: { id: 'session-remote' } },
+    questions: [{ id: 'q1', question: '继续吗？', options: [{ label: 'A' }, { label: 'B' }] }],
+  }, () => Promise.reject(new Error('no local answerer')))
+  assert.deepEqual(result, { answers: [{ id: 'q1', selected: ['A'] }] })
+  assert.equal(asked[0][0], 'session.question')
+  assert.equal(asked[0][1].callId, '')
+  assert.match(asked[0][1].questionId, /^session-remote:blocking-/)
+})
+
+test('a permission approval stays on the machine that owns the work', async () => {
+  const { host } = makeMirrorHost()
+  host.relay = { state: 'connected' }
+  const asked = []
+  host.remoteCall = async (_peerId, method) => {
+    asked.push(method)
+    return {}
+  }
+  const result = await host.handlePeerQuestion({
+    agent: { session: { id: 'session-remote' } },
+    questions: [{
+      id: 'q1',
+      question: '是否允许写入？',
+      options: [{ label: '允许' }, { label: '拒绝' }],
+      intent: { kind: 'approval', approve: '允许', reject: '拒绝', detail: '写 /tmp' },
+    }],
+  }, () => 'NEXT')
+  assert.equal(result, 'NEXT')
+  assert.deepEqual(asked, [])
+})
+
+test('one peer that cannot answer does not cancel the other peers', async () => {
+  const { host } = makeMirrorHost()
+  host.relay = { state: 'connected' }
+  host.peers = [
+    { id: 'dev_dead', name: '离线机器', platform: 'macos' },
+    { id: 'dev_peer', name: '出差笔记本', platform: 'macos' },
+  ]
+  host.remoteCall = async (peerId, method) => {
+    if (method !== 'session.question') return {}
+    if (peerId === 'dev_dead') throw new Error('unavailable')
+    return { answers: [{ id: 'q1', selected: ['B'] }] }
+  }
+  const request = {
+    agent: { session: { id: 'session-remote' } },
+    wait: { callId: 'call-9', timed: true },
+    questions: [{ id: 'q1', question: '继续吗？', options: [{ label: 'A' }, { label: 'B' }] }],
+  }
+  const result = await host.handlePeerQuestion(request, () => Promise.resolve('NEXT'))
+  assert.deepEqual(result, { answers: [{ id: 'q1', selected: ['B'] }] })
+})
+
 test('an incoming peer question becomes locally answerable and replies once', async () => {
   const { host } = makeMirrorHost()
   const sent = []

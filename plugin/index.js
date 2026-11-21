@@ -34,7 +34,7 @@ export const name = 'dsh-link'
 export const inject = ['tools', 'systemPrompt', 'credentials']
 
 /** Version reported to peers and the Web UI. */
-const VERSION = '1.3.3'
+const VERSION = '1.3.4'
 /** On-disk config document version. */
 const CONFIG_VERSION = 1
 /** Same-origin API route used by the Client half. */
@@ -1306,77 +1306,169 @@ class LinkHost {
 
   /**
    * Waterfall answerer for `user-questions/request`. A question asked on this
-   * computer is offered to every online peer; the first peer answer wins, so a
-   * remote user can answer a question the local UI is also able to answer.
-   * Everything that cannot be answered here delegates with `next()`.
+   * computer is offered to every online peer while the local answerers (the
+   * connected Web client bridge, other answer plugins) receive the same
+   * request through `next()`. The first side to answer decides.
+   *
+   * This listener must be registered with `prepend`: the Web client bridge is
+   * otherwise first in the waterfall and holds the question for the browser
+   * without ever calling `next()`, so a peer would never see it at all.
    */
   async handlePeerQuestion(request, next) {
-    if (this.relay === undefined || this.relay.state !== 'connected' || this.peers.length === 0) return next()
     const agent = request?.agent
     const sessionId = agent?.session?.id ?? agent?.session?.header?.id
     const callId = request?.wait?.callId
     const questions = Array.isArray(request?.questions) ? request.questions : []
-    if (typeof sessionId !== 'string' || sessionId.length === 0) return next()
-    if (typeof callId !== 'string' || callId.length === 0 || questions.length === 0) return next()
-    const answers = await this.offerQuestion({
-      questionId: `${sessionId}:${callId}`,
+    const offline = this.relay === undefined || this.relay.state !== 'connected' || this.peers.length === 0
+    if (offline || typeof sessionId !== 'string' || sessionId.length === 0 || questions.length === 0) return next()
+    // Permission approvals and plan reviews stay with the machine that owns the
+    // work: a paired computer may answer questions, not grant this Host's
+    // access or approve its plans.
+    const localDecision = questions.some((question) => {
+      const intent = question !== null && typeof question === 'object' ? question.intent : undefined
+      return intent !== null && typeof intent === 'object' && (intent.kind === 'approval' || intent.kind === 'plan-review')
+    })
+    if (localDecision) return next()
+    // Timed questions carry the tool-call id; blocking questions (no `wait`) get
+    // a per-request id so peers can still de-duplicate and cancel one card.
+    const questionId = typeof callId === 'string' && callId.length > 0
+      ? `${sessionId}:${callId}`
+      : `${sessionId}:blocking-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+    // Run the rest of the chain right away so the local UI can present the same
+    // question: a peer answer and a local answer race, whichever lands first.
+    const local = Promise.resolve()
+      .then(() => next())
+      .then((value) => ({ kind: 'local', value }), (error) => ({ kind: 'local-error', error }))
+    const offered = this.offerQuestion({
+      questionId,
       sessionId,
-      callId,
+      callId: typeof callId === 'string' ? callId : '',
       questions,
       timed: request?.wait?.timed === true,
       signal: request?.signal,
     }).catch(() => undefined)
-    if (answers === undefined) return next()
-    return { answers }
+    const outcome = await new Promise((resolve) => {
+      let settled = false
+      let localResult
+      let peersExhausted = false
+      const finish = (value) => {
+        if (settled) return
+        settled = true
+        request?.signal?.removeEventListener?.('abort', onAbort)
+        resolve(value)
+      }
+      const onAbort = () => finish({ kind: 'abort' })
+      if (request?.signal?.aborted === true) {
+        finish({ kind: 'abort' })
+        return
+      }
+      request?.signal?.addEventListener?.('abort', onAbort, { once: true })
+      local.then((result) => {
+        localResult = result
+        // Only a real answer batch from the remaining chain beats a peer answer:
+        // a delegated fallback value (or a refusal) means no local answerer took
+        // the question, so the peer offer must keep its chance.
+        if (result.kind === 'local' && isQuestionAnswer(result.value)) {
+          finish({ kind: 'local', value: result.value })
+          return
+        }
+        if (peersExhausted) finish(result)
+      })
+      offered.then((answers) => {
+        if (answers !== undefined) {
+          finish({ kind: 'peer', answers })
+          return
+        }
+        peersExhausted = true
+        if (localResult !== undefined && localResult.kind === 'local-error') finish(localResult)
+      })
+    })
+    if (outcome.kind === 'local') {
+      // The local answerer answered first: let the peers drop their cards.
+      this.cancelPeerOffers(questionId)
+      return outcome.value
+    }
+    if (outcome.kind === 'local-error') {
+      // Peers could not answer either; keep the shipped chain's own failure.
+      throw outcome.error
+    }
+    if (outcome.kind === 'peer') return { answers: outcome.answers }
+    if (outcome.kind === 'abort') {
+      // The waiting window ended (or the Turn was cancelled) before any side
+      // answered: reject with the abort reason so the caller maps it exactly
+      // like its own timed-out wait.
+      throw request?.signal?.reason ?? peerQuestionError('remote question aborted', 'ASK_ABORTED')
+    }
+    throw outcome.error ?? peerQuestionError('no answerer accepted the question', 'NO_PROVIDER')
   }
 
-  /** Offer one question to every peer and resolve the first accepted answer. */
+  /**
+   * Offer one question to every peer and resolve the first accepted answer, or
+   * `undefined` once every peer failed or the question's signal aborted. A peer
+   * that cannot answer (no mirror, timeout, cancellation) must not stop the
+   * others from answering, so only an accepted answer settles the offer.
+   */
   async offerQuestion(question) {
     const peers = [...this.peers]
     if (peers.length === 0 || this.relay === undefined) return undefined
-    const attempts = peers.map((peer) => this.remoteCall(peer.id, 'session.question', {
-      questionId: question.questionId,
-      sessionId: question.sessionId,
-      callId: question.callId,
-      questions: question.questions,
-      timed: question.timed,
-    }, QUESTION_TIMEOUT_MS).then((result) => ({ peer, result })).catch(() => undefined))
-    const answered = await this.raceFirstAnswer(attempts, question.signal)
+    const answered = await new Promise((resolve) => {
+      let settled = false
+      let pending = peers.length
+      const finish = (value) => {
+        if (settled) return
+        settled = true
+        question.signal?.removeEventListener?.('abort', onAbort)
+        resolve(value)
+      }
+      const onAbort = () => finish(undefined)
+      if (question.signal?.aborted === true) {
+        finish(undefined)
+        return
+      }
+      question.signal?.addEventListener?.('abort', onAbort, { once: true })
+      for (const peer of peers) {
+        this.remoteCall(peer.id, 'session.question', {
+          questionId: question.questionId,
+          sessionId: question.sessionId,
+          callId: question.callId,
+          questions: question.questions,
+          timed: question.timed,
+        }, QUESTION_TIMEOUT_MS).then((result) => {
+          const answers = result !== null && typeof result === 'object' && Array.isArray(result.answers) ? result.answers : undefined
+          if (answers !== undefined) {
+            finish({ peer, answers })
+            return
+          }
+          pending -= 1
+          if (pending === 0) finish(undefined)
+        }, () => {
+          pending -= 1
+          if (pending === 0) finish(undefined)
+        })
+      }
+    })
     if (answered === undefined) return undefined
-    // Every other peer still holds the question open; cancel it so their row
-    // stops offering an answer the remote Agent already received.
+    // Every other peer still holds the question open; cancel it so their card
+    // stops offering an answer the asking Agent already received.
     for (const peer of peers) {
       if (peer.id === answered.peer.id) continue
       this.remoteCall(peer.id, 'session.questionCancel', { questionId: question.questionId }, QUESTION_CANCEL_TIMEOUT_MS).catch(() => {})
     }
-    const result = answered.result
-    return result !== null && typeof result === 'object' && Array.isArray(result.answers) ? result.answers : undefined
+    return answered.answers
   }
 
-  /** Resolve with the first answered attempt, or undefined when all fail or the signal aborts. */
-  raceFirstAnswer(attempts, signal) {
-    return new Promise((resolve) => {
-      let settled = false
-      const finish = (value) => {
-        if (settled) return
-        settled = true
-        signal?.removeEventListener?.('abort', onAbort)
-        resolve(value)
-      }
-      const onAbort = () => finish(undefined)
-      if (signal?.aborted === true) {
-        finish(undefined)
-        return
-      }
-      signal?.addEventListener?.('abort', onAbort, { once: true })
-      for (const attempt of attempts) {
-        attempt.then((value) => finish(value), () => {})
-      }
-    })
+  /** Let every peer drop the card of a question that was answered locally. */
+  cancelPeerOffers(questionId) {
+    for (const peer of [...this.peers]) {
+      this.remoteCall(peer.id, 'session.questionCancel', { questionId }, QUESTION_CANCEL_TIMEOUT_MS).catch(() => {})
+    }
   }
 
   /** Store one question a peer asked and wait for the local user's answer. */
-  handleQuestionCall(relay, rid, from, params) {
+  handleQuestionCall(relay, rid, caller, params) {
+    // The relay forwards a caller *peer object*, while mirror lookups key on
+    // the device id; accept both so a peer question can find its mirror row.
+    const from = peerIdOf(caller)
     const questionId = typeof params?.questionId === 'string' ? params.questionId : ''
     const remoteSessionId = typeof params?.sessionId === 'string' ? params.sessionId : ''
     const questions = Array.isArray(params?.questions) ? params.questions : []
@@ -4109,7 +4201,7 @@ class LinkHost {
     // A question is answered by a human, so its reply is not bound by the RPC
     // timeout: the sending peer decides how long it keeps the offer open.
     if (method === 'session.question') {
-      this.handleQuestionCall(relay, rid, from, params)
+      this.handleQuestionCall(relay, rid, peerIdOf(from), params)
       return
     }
     if (method === 'session.questionCancel') {
@@ -4404,6 +4496,22 @@ class LinkHost {
         this.unwatchMirror(sessionId)
         return { watching: false }
       }
+      case 'questions': {
+        return {
+          items: [...this.incomingQuestions.values()].map((entry) => ({
+            questionId: entry.questionId,
+            localSessionId: entry.localSessionId,
+            count: entry.questions.length,
+            questions: entry.questions.map((item) => ({
+              id: item.id ?? '',
+              header: item.header ?? '',
+              question: item.question ?? '',
+              multiSelect: item.multiSelect === true,
+              options: Array.isArray(item.options) ? item.options.map((option) => option.label) : [],
+            })),
+          })),
+        }
+      }
       case 'streams': {
         return {
           items: [...this.mirrorStreamStats.entries()].map(([localId, stats]) => ({ localId, ...stats })),
@@ -4444,6 +4552,34 @@ class LinkHost {
         return { ok: true, hint: 'what: config | sessions | titles | workspaces | speech | streams | events(sessionId)' }
     }
   }
+}
+
+/**
+ * Whether a waterfall result carries the `{ answers: [...] }` batch a real
+ * answerer returns, as opposed to a delegated fallback value.
+ */
+function isQuestionAnswer(value) {
+  if (value === null || typeof value !== 'object') return false
+  if (!Array.isArray(value.answers)) return false
+  return value.answers.every((item) => item !== null && typeof item === 'object' && typeof item.id === 'string')
+}
+
+/**
+ * Build an error the `user-questions` seam recognises as its own, so a question
+ * this Host could not place keeps a stable `UserQuestionError` code instead of
+ * surfacing as an opaque provider failure.
+ */
+function peerQuestionError(message, code) {
+  const error = new Error(message)
+  error.name = 'UserQuestionError'
+  error.code = code
+  return error
+}
+
+/** Device id of a relay `from` field, which arrives as a peer object. */
+function peerIdOf(from) {
+  if (typeof from === 'string') return from
+  return typeof from?.id === 'string' ? from.id : ''
 }
 
 /** Clamp an integer argument. */
@@ -4664,7 +4800,7 @@ function toolDefinitions(host) {
       parameters: {
         type: 'object',
         properties: {
-          what: { type: 'string', enum: ['config', 'sessions', 'titles', 'workspaces', 'speech', 'events', 'raw', 'list', 'state', 'follow', 'speech-test', 'mirror-probe', 'mirror-list', 'mirror-cleanup', 'types', 'tree', 'remote-tree', 'ensure-mirror', 'workspace-snapshot', 'models', 'presets', 'session-info', 'archive-state', 'archive-probe', 'streams', 'rebuild-mirrors', 'watch', 'unwatch'] },
+          what: { type: 'string', enum: ['config', 'sessions', 'titles', 'workspaces', 'speech', 'events', 'raw', 'list', 'state', 'follow', 'speech-test', 'mirror-probe', 'mirror-list', 'mirror-cleanup', 'types', 'tree', 'remote-tree', 'ensure-mirror', 'workspace-snapshot', 'models', 'presets', 'session-info', 'archive-state', 'archive-probe', 'streams', 'rebuild-mirrors', 'watch', 'unwatch', 'questions'] },
           session_id: { type: 'string', description: 'Required when what is events/raw/state/follow.' },
           before_seq: { type: 'number', description: 'Optional raw-event page cursor.' },
           device: { type: 'string', description: 'Target peer for mirror-probe.' },
@@ -5084,7 +5220,10 @@ export function apply(ctx) {
   // A question asked on this computer is offered to online peers first, so a
   // human working on another machine can answer without walking over. When no
   // peer holds it, the request delegates to the shipped local answerers.
-  ctx.effect(() => ctx.on('user-questions/request', (request, next) => host.handlePeerQuestion(request, next)), 'dsh-link: peer questions')
+  // `prepend` keeps this listener ahead of the Web client bridge, which would
+  // otherwise hold every question for the browser and never call `next()`, so
+  // no peer would ever see it.
+  ctx.effect(() => ctx.on('user-questions/request', (request, next) => host.handlePeerQuestion(request, next), { prepend: true, global: true }), 'dsh-link: peer questions')
 
   // Native mirror Sessions must never run their local model. Reject the step
   // before a request is built and forward the admitted prompt to the remote

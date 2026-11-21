@@ -3,7 +3,7 @@
 > One private relay of your own connects **DeepSeek Harness (DSH)** installations on several computers and an **Android phone** into a private space that belongs only to you: browse and drive another computer's DSH Sessions from this one, let the local agent steer a remote DSH with tools, and use voice input on the phone while recognition stays on the target computer.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Plugin](https://img.shields.io/badge/plugin-1.3.3-brightgreen)
+![Plugin](https://img.shields.io/badge/plugin-1.3.4-brightgreen)
 ![Protocol](https://img.shields.io/badge/protocol-v1-blue)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84)
 
@@ -325,6 +325,7 @@ Deeper design notes live in [docs/architecture.md](docs/architecture.md); instal
 
 | Component | Version | Notes |
 | --- | --- | --- |
+| DSH Link plugin | 1.3.4 | Fixes two features that never worked: the question answerer now registers ahead of the Web client bridge (previously the bridge held every question and a peer never saw it), blocking questions without a call id are forwarded, the relay's peer object is normalized before mirror lookup, one failing peer no longer cancels the whole offer, the answer card opens from anywhere with its source, and streaming output is on by default. Previous: mirror logs that made every remote Session fail with "history load failed" |
 | DSH Link plugin | 1.3.3 | Fixes mirror logs that made every remote Session fail with "history load failed": rich events that cite other events by seq are no longer mirrored, the Turn/Step position is read back from the log, and a tool call whose result never arrived is settled; mirrors written by an older writer are verified and rebuilt after the upgrade. Previous: session status dots and running indicator, remote question forwarding, image sending, goal/task-board rich event mirroring, and steer-while-running instead of silent queueing; the stylesheet now mounts for the whole plugin, so the sidebar gear keeps its styles once a conversation takes the main panel, and the row's remote tag is a native-style glyph instead of a pill |
 | Protocol | v1 | New fields are backwards compatible; new methods do not bump `v` |
 | Relay | 1.0.0 (protocol v1) | Node.js ≥ 20, single `ws` dependency |

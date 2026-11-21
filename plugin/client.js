@@ -259,6 +259,7 @@ window.__ModuleLoader__.load({
         'mirror.statusRunning': 'Remote turn running',
         'mirror.statusWaiting': 'Waiting for your answer',
         'mirror.statusDone': 'Remote turn finished',
+        'mirror.waitingAnswer': 'Waiting for your answer',
         'mirror.statusFailed': 'Remote turn failed',
         'mirror.statusQueued': '{n} queued',
         'question.open': 'Answer',
@@ -270,6 +271,7 @@ window.__ModuleLoader__.load({
         'question.multiHint': 'Select one or more',
         'question.loadFailed': 'Could not load the question',
         'question.submitted': 'Answer sent',
+        'question.source': 'From {place}',
       },
       zh: {
         panel: '跨设备',
@@ -497,6 +499,7 @@ window.__ModuleLoader__.load({
         'mirror.statusRunning': '远程正在运行',
         'mirror.statusWaiting': '等待本机回答',
         'mirror.statusDone': '远程已完成',
+        'mirror.waitingAnswer': '等待你回答',
         'mirror.statusFailed': '远程运行失败',
         'mirror.statusQueued': '排队 {n} 条',
         'question.open': '回答问题',
@@ -508,6 +511,7 @@ window.__ModuleLoader__.load({
         'question.multiHint': '可多选',
         'question.loadFailed': '读取问题失败',
         'question.submitted': '答案已发送',
+        'question.source': '来自 {place}',
       },
     }
 
@@ -800,7 +804,9 @@ window.__ModuleLoader__.load({
       .dsh-link-status-count { flex: none; font-size: 10px; line-height: 1; color: var(--dsw-alias-state-warn-label); }
       @keyframes dsh-link-spin { to { transform: rotate(360deg); } }
       @media (prefers-reduced-motion: reduce) { .dsh-link-status-dot.is-running::before { animation-duration: 2.4s; } }
+      .dsh-link-status-count.is-question { font-weight: 700; }
       .dsh-link-question { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+      .dsh-link-question-source { font-size: 11.5px; color: var(--dsw-alias-label-tertiary); margin-bottom: -6px; }
       .dsh-link-question-item { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: .5px solid var(--dsw-alias-border-l3); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); }
       .dsh-link-question-header { font-size: 11px; font-weight: 600; color: var(--dsw-alias-label-tertiary); text-transform: uppercase; letter-spacing: .04em; }
       .dsh-link-question-text { font-size: 13.5px; font-weight: 500; color: var(--dsw-alias-label-primary); }
@@ -1289,7 +1295,14 @@ window.__ModuleLoader__.load({
         const live = useLiveStatus(sessionId)
         if (mirror === undefined) return null
         const queued = mirrorQueuedCount(live)
+        const waitingQuestion = live !== null && typeof live === 'object' && typeof live.questionId === 'string' && live.questionId !== ''
         return React.createElement(React.Fragment, null,
+          waitingQuestion ? React.createElement('span', {
+            className: 'dsh-link-status-count is-question',
+            title: t('mirror.waitingAnswer'),
+            'aria-label': t('mirror.waitingAnswer'),
+            role: 'status',
+          }, '?') : null,
           queued > 0 ? React.createElement('span', {
             className: 'dsh-link-status-count',
             title: t('mirror.statusQueued', { n: queued }),
@@ -2973,8 +2986,11 @@ window.__ModuleLoader__.load({
         }
       }
 
+      const mirror = mirrorStore.items.find((item) => item.localSessionId === target.sessionId)
+      const place = [target.deviceName, mirror !== undefined ? mirror.title : ''].filter((item) => typeof item === 'string' && item !== '').join(' · ')
       return h(Sheet, { t, title: t('question.title'), wide: false, onClose },
         h('div', { className: 'dsh-link-question' },
+          place === '' ? null : h('div', { className: 'dsh-link-question-source' }, t('question.source', { place })),
           state.phase === 'loading' ? h('div', { className: 'dsh-link-muted' }, t('loading')) : null,
           state.phase === 'empty' ? h('div', { className: 'dsh-link-muted' }, t('question.empty')) : null,
           state.error !== '' ? h('div', { className: 'dsh-link-error' }, state.error) : null,
@@ -4430,6 +4446,33 @@ window.__ModuleLoader__.load({
             live.clear()
           }
         }, 'dsh-link: pending remote questions')
+
+        // A remote question blocks the remote Agent until it is answered, so the
+        // card must reach the person wherever they are, not only inside that
+        // mirrored conversation (the shipped pending-interaction dot does not
+        // open anything by itself).
+        ctx.effect(() => {
+          const autoOpened = new Set()
+          const sync = () => {
+            if (questionStore.target !== null) return
+            for (const [localSessionId, status] of liveStore.byId) {
+              if (status === null || typeof status !== 'object') continue
+              const questionId = typeof status.questionId === 'string' ? status.questionId : ''
+              if (questionId === '') continue
+              const key = `${localSessionId}:${questionId}`
+              if (autoOpened.has(key)) continue
+              autoOpened.add(key)
+              const mirror = mirrorStore.items.find((item) => item.localSessionId === localSessionId)
+              openQuestion({ sessionId: localSessionId, questionId, deviceName: mirror?.deviceName ?? '' })
+              break
+            }
+          }
+          liveStore.listeners.add(sync)
+          sync()
+          return () => {
+            liveStore.listeners.delete(sync)
+          }
+        }, 'dsh-link: question auto open')
 
         ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist',

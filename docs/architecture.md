@@ -78,8 +78,13 @@
 2bb. 远程消息里的图片先经 `attachment.image` 取回字节，用本机附件服务 `saveImage()` 落地后
     以本机附件引用写入镜像日志（按远程 `attachmentId` 缓存），因此远程发来的图片在本机原生
     对话里同样显示；
-2c. 远程 `ask_user_question` 通过 Host 的 `user-questions/request` waterfall 转发给在线设备，
-    第一个作答的结果用于回答本机提问；本机问答 UI 与远程作答竞争，谁先回答谁生效；
+2c. 远程 `ask_user_question` 通过 Host 的 `user-questions/request` waterfall 转发给在线设备。
+    DSH 的 Web 客户端桥接是同一个 waterfall 里的监听器，且会一直占着问题不调 `next()`，
+    因此本插件以 `prepend` + `global` 注册，先于桥接执行：一边把问题交给剩余链路（本机卡片
+    照常弹出），一边广播给在线设备，谁先作答用谁的结果，另一侧随后取消。权限审批
+    （`intent.kind === 'approval'`）与计划审批（`plan-review`）不转发，只在工作所属机器处理。
+    对端来电的 `from` 是 relay 的 peer 对象，查找镜像前先归一化成 device id；单个设备失败
+    不会取消整轮提问；
 3. 打开镜像会话时，Web UI 的会话头组件向 Host 发 `watch`，Host 订阅远程
    `session.follow`（`assistantStream` 跟随设置，默认 `true`），提交记录继续追加到本机会话
    日志；远程正在生成时，瞬时 `assistant-stream` 分片通过本机 Cordis 的
