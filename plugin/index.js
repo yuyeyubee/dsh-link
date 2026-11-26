@@ -34,7 +34,7 @@ export const name = 'dsh-link'
 export const inject = ['tools', 'systemPrompt', 'credentials']
 
 /** Version reported to peers and the Web UI. */
-const VERSION = '1.3.5'
+const VERSION = '1.3.6'
 /** On-disk config document version. */
 const CONFIG_VERSION = 1
 /** Same-origin API route used by the Client half. */
@@ -2034,15 +2034,9 @@ class LinkHost {
     if ((this.mirrors.version ?? 1) >= MIRROR_STORE_VERSION) return
     const registry = this.service('workspaceRegistry')
     for (const device of Object.values(this.mirrors.devices ?? {})) {
-      for (const entry of Object.values(device.sessions ?? {})) {
-        if (registry !== undefined && typeof entry.localId === 'string') {
-          try {
-            await registry.archiveSession(entry.localId, { stopActivity: true })
-          } catch {
-            // already archived or gone
-          }
-        }
-      }
+      // Keep the local mirror Sessions and their mappings. The remote may be
+      // offline during startup; treating that temporary gap as permission to
+      // archive or forget the local logs made a layout migration destructive.
       if (registry !== undefined && typeof device.workspaceId === 'string') {
         try {
           await registry.delete(device.workspaceId)
@@ -2051,13 +2045,19 @@ class LinkHost {
         }
       }
       device.workspaces = {}
-      device.sessions = {}
+      device.sessions = device.sessions ?? {}
+      for (const entry of Object.values(device.sessions)) {
+        if (entry === null || typeof entry !== 'object') continue
+        // The old single-device Workspace is gone; a later successful peer
+        // sync assigns each existing mirror to its remote project's Workspace.
+        entry.workspaceId = ''
+      }
       delete device.workspaceId
       delete device.workspacePath
     }
     this.mirrors.version = MIRROR_STORE_VERSION
     this.saveMirrorStore()
-    this.log('info', 'dsh-link: upgraded mirror layout to per-project workspaces')
+    this.log('info', 'dsh-link: upgraded mirror layout to per-project workspaces without archiving mirror Sessions')
   }
 
   /** Atomically persist the mirror mapping with mode 0600. */
@@ -2170,7 +2170,7 @@ class LinkHost {
         // the row and rebuild it from the remote once the peer is reachable.
         if (this.mirrorNeedsCheck(entry) && (await this.mirrorLogCorrupt(entry.localId)) === true) {
           entry.needsRebuild = true
-          await registry.archiveSession(entry.localId, { stopActivity: true }).catch(() => {})
+          this.log('warn', `dsh-link: mirror ${entry.localId} needs a remote rebuild; keeping its local history until replacement is ready`)
         }
       }
     }
@@ -2186,7 +2186,11 @@ class LinkHost {
       if (item === null || typeof item !== 'object' || typeof item.sessionId !== 'string' || typeof item.cwd !== 'string') continue
       if (!item.cwd.startsWith(`${root}${sep}`)) continue
       if (this.mirrorForLocal(item.sessionId) !== undefined) continue
-      await registry.archiveSession(item.sessionId, { stopActivity: true }).catch(() => {})
+      // A missing remote mapping is not proof that this local mirror's history
+      // is disposable: the peer may be offline, or the mapping file may be
+      // temporarily incomplete. Keep the Session recoverable and let an
+      // explicit cleanup remove it; never auto-archive it on startup.
+      this.log('warn', `dsh-link: preserving unmapped mirror Session ${item.sessionId} in ${item.cwd}`)
     }
   }
 
@@ -2276,58 +2280,65 @@ class LinkHost {
     return { rebuilt, failed }
   }
 
-  /** Hide projected Workspaces of peers that are no longer online. */
+  /** Keep offline peer mirrors as cached local history instead of archiving them. */
   async pruneOfflinePeerWorkspaces() {
     const online = new Set(this.peers.map((peer) => peer.id))
     const registry = this.service('workspaceRegistry')
-    // Only a real controller owns the archive baseline; the static fallback of
-    // `workspaceSnapshot` reports an empty set and must not be read as intent.
-    const local = this.service('workspaceController') === undefined
-      ? null
-      : await this.workspaceSnapshot().catch(() => null)
-    const localArchived = local === null
-      ? undefined
-      : new Set(Array.isArray(local.archivedSessionIds) ? local.archivedSessionIds.map(String) : [])
+    if (registry === undefined) return
     let changed = false
     for (const [deviceId, device] of Object.entries(this.mirrors.devices ?? {})) {
       if (online.has(deviceId)) continue
-      // Keep the Session mapping: it owns the local mirror id and the last
-      // archive direction. Dropping it made every reconnect mint a fresh,
-      // unarchived copy of every remote Session, so archived rows came back.
+      // Older builds archived mirror rows and removed their Workspace whenever
+      // a peer went offline. Restore that temporary state from the saved user
+      // direction, but do not create new archives just because a peer vanished.
       for (const entry of Object.values(device.sessions ?? {})) {
         if (entry === null || typeof entry !== 'object' || typeof entry.localId !== 'string') continue
-        // Remember what the user had before the row is hidden: the archive
-        // state below is written by this plugin, not by the user, so the next
-        // online reconcile must restore the remembered direction instead of
-        // reading it as a fresh user action.
-        if (typeof entry.archiveDesired !== 'boolean') {
-          if (typeof entry.archiveLocal === 'boolean') entry.archiveDesired = entry.archiveLocal
-          else if (localArchived !== undefined) entry.archiveDesired = localArchived.has(entry.localId)
+        if (entry.offlineHidden !== true && entry.restorePending !== true) continue
+        const desired = typeof entry.archiveDesired === 'boolean'
+          ? entry.archiveDesired
+          : typeof entry.archiveRemote === 'boolean'
+            ? entry.archiveRemote
+            : false
+        try {
+          await this.applyMirrorArchive(entry.localId, desired)
+        } catch (error) {
+          this.log('warn', `dsh-link: restore offline mirror ${entry.localId}: ${errorMessage(error)}`)
+          continue
         }
-        entry.offlineHidden = true
-        if (registry !== undefined) {
+        let mapping = device.workspaces?.[entry.workspaceId]
+        let workspace = typeof mapping?.localWorkspaceId === 'string'
+          ? registry.get(mapping.localWorkspaceId)
+          : undefined
+        if (workspace === undefined) {
+          const peer = { id: deviceId, name: device.name ?? deviceId }
+          const remoteWorkspace = typeof entry.workspaceId === 'string' && entry.workspaceId !== ''
+            ? { workspaceId: entry.workspaceId, title: '', path: '' }
+            : undefined
           try {
-            await registry.archiveSession(entry.localId, { stopActivity: true })
-          } catch {
-            // already archived or gone
+            await this.ensureRemoteProjectWorkspace(peer, peer.name, device, remoteWorkspace)
+            mapping = device.workspaces?.[entry.workspaceId]
+            workspace = typeof mapping?.localWorkspaceId === 'string'
+              ? registry.get(mapping.localWorkspaceId)
+              : undefined
+          } catch (error) {
+            this.log('warn', `dsh-link: restore offline mirror workspace ${entry.localId}: ${errorMessage(error)}`)
           }
         }
-        entry.archiveLocal = true
-      }
-      const mappings = Object.values(device.workspaces ?? {})
-      for (const mapping of mappings) {
-        const workspaceId = mapping?.localWorkspaceId
-        if (typeof workspaceId !== 'string' || workspaceId.length === 0) continue
-        if (registry !== undefined) {
-          try {
-            await registry.delete(workspaceId)
-          } catch {
-            // already gone
-          }
+        if (workspace === undefined) continue
+        try {
+          await workspace.attachSession(entry.localId)
+        } catch (error) {
+          this.log('warn', `dsh-link: reattach offline mirror ${entry.localId}: ${errorMessage(error)}`)
+          continue
         }
+        entry.archiveLocal = desired
+        delete entry.offlineHidden
+        delete entry.restorePending
+        this.mirrorArchiveStates.set(entry.localId, { local: desired, remote: entry.archiveRemote, desired })
+        changed = true
       }
-      device.workspaces = {}
-      changed = true
+      // Keep the cached Workspace registrations and mappings. They are local
+      // history, not proof that the remote Session is still available.
     }
     if (changed) this.saveMirrorStore()
   }
@@ -2541,10 +2552,10 @@ class LinkHost {
   }
 
   /** Append newly committed remote history to one live mirror Session. */
-  async syncMirrorHistory(peer, entry, remoteSessionId) {
+  async syncMirrorHistory(peer, entry, remoteSessionId, historySnapshot) {
     const session = this.service('sessions')?.get(entry.localId)
     if (session === undefined) return
-    const history = await this.remoteCall(peer.id, 'session.history', {
+    const history = historySnapshot ?? await this.remoteCall(peer.id, 'session.history', {
       sessionId: remoteSessionId,
       maxMessages: 60,
     }, 30_000)
@@ -3820,40 +3831,75 @@ class LinkHost {
       ? registry.get(mapping.localWorkspaceId)
       : undefined
     if (workspace === undefined) return false
+    const peer = { id: deviceId, name: device.name ?? deviceId }
+    let history
+    try {
+      // Verify and fetch the remote source before changing the local mapping or
+      // archive state. A missing remote Session is not a reason to hide its
+      // last locally persisted history.
+      history = await this.remoteCall(peer.id, 'session.history', { sessionId: remoteSessionId, maxMessages: 60 }, 30_000)
+    } catch (error) {
+      this.log('warn', `dsh-link: mirror rebuild source ${remoteSessionId} unavailable; keeping ${entry.localId}: ${errorMessage(error)}`)
+      return false
+    }
     const base = this.localMirrorId(deviceId, remoteSessionId)
     const nextLocalId = `${base}-${Date.now().toString(36)}`
     const oldLocalId = entry.localId
-    // Bind the mapping before the Session exists: a Session created inside a
-    // mirror Workspace fires `session/created`, and that hook binds an unmapped
-    // row there to a brand-new remote Session — which this rebuild would leak.
-    entry.localId = nextLocalId
+    const desired = typeof entry.archiveDesired === 'boolean'
+      ? entry.archiveDesired
+      : entry.archiveLocal === true
+    const nextEntry = {
+      ...entry,
+      localId: nextLocalId,
+      remoteSeq: -1,
+      pendingUserTexts: [],
+      mirrorCursor: undefined,
+      toolCallSeqs: undefined,
+      openToolCalls: undefined,
+      lastCommittedAssistant: undefined,
+      mirrorStream: undefined,
+    }
+    // Bind the temporary id before Session creation: a Session created inside a
+    // mirror Workspace fires `session/created`, and that hook must not bind it
+    // to a second remote Session.
+    device.sessions[remoteSessionId] = nextEntry
     try {
-      await sessions.create({ workspaceId: workspace.id, sessionId: nextLocalId })
+      const created = await sessions.create({ workspaceId: workspace.id, sessionId: nextLocalId })
+      const createdId = typeof created?.sessionId === 'string' ? created.sessionId : nextLocalId
+      if (createdId !== nextLocalId) nextEntry.localId = createdId
+      const local = this.service('sessions')?.get(createdId)
+      if (local === undefined) throw new Error('rebuilt mirror Session did not enter the local Session store')
+      await workspace.attachSession(createdId)
+      await this.syncMirrorHistory(peer, nextEntry, remoteSessionId, history)
+      const corrupt = await this.mirrorLogCorrupt(createdId)
+      if (corrupt !== false) {
+        throw new Error(corrupt === true ? 'rebuilt mirror log is still corrupt' : 'rebuilt mirror log could not be verified')
+      }
+      // Only retire the old local log after the replacement is complete and
+      // replayable. Preserve the user's archive direction on the replacement.
+      if (registry !== undefined) {
+        await registry.archiveSession(oldLocalId, { stopActivity: true }).catch(() => {})
+        if (desired) await registry.archiveSession(createdId, { stopActivity: true }).catch(() => {})
+        else await registry.unarchiveSession(createdId).catch(() => {})
+      }
+      Object.assign(entry, nextEntry, {
+        archiveDesired: desired,
+        archiveLocal: desired,
+        logValid: true,
+        writerVersion: MIRROR_WRITER_VERSION,
+      })
+      delete entry.needsRebuild
+      delete entry.offlineHidden
+      delete entry.restorePending
+      device.sessions[remoteSessionId] = entry
+      this.mirrorArchiveStates.set(createdId, { local: desired, remote: entry.archiveRemote, desired })
+      return true
     } catch (error) {
-      entry.localId = oldLocalId
+      // Keep the original Session and mapping authoritative if rebuilding fails.
+      device.sessions[remoteSessionId] = entry
       this.log('warn', `dsh-link: mirror rebuild ${remoteSessionId}: ${errorMessage(error)}`)
       return false
     }
-    if (registry !== undefined) {
-      await registry.archiveSession(oldLocalId, { stopActivity: true }).catch(() => {})
-      await registry.archiveSession(nextLocalId, { stopActivity: true }).catch(() => {})
-      const desired = typeof entry.archiveDesired === 'boolean' ? entry.archiveDesired : entry.archiveLocal === true
-      if (desired !== true) await registry.unarchiveSession(nextLocalId).catch(() => {})
-      entry.archiveDesired = desired
-      entry.archiveLocal = desired === true
-    }
-    await workspace.attachSession(nextLocalId).catch(() => {})
-    entry.localId = nextLocalId
-    entry.remoteSeq = -1
-    entry.pendingUserTexts = []
-    entry.mirrorCursor = undefined
-    entry.toolCallSeqs = undefined
-    entry.openToolCalls = undefined
-    entry.lastCommittedAssistant = undefined
-    entry.mirrorStream = undefined
-    await this.syncMirrorHistory({ id: deviceId, name: device.name ?? deviceId }, entry, remoteSessionId)
-    this.saveMirrorStore()
-    return true
   }
 
   /** Rebuild every mirrored Session of one device (or all devices). */

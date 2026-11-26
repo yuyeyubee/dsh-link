@@ -3,7 +3,7 @@
 > One private relay of your own connects **DeepSeek Harness (DSH)** installations on several computers and an **Android phone** into a private space that belongs only to you: browse and drive another computer's DSH Sessions from this one, let the local agent steer a remote DSH with tools, and use voice input on the phone while recognition stays on the target computer.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Plugin](https://img.shields.io/badge/plugin-1.3.4-brightgreen)
+![Plugin](https://img.shields.io/badge/plugin-1.3.6-brightgreen)
 ![Protocol](https://img.shields.io/badge/protocol-v1-blue)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84)
 
@@ -170,9 +170,9 @@ After pairing, **Workspaces** in the DSH sidebar looks like:
 - Remote replies stream token by token while the remote turn generates; turn it off in **Settings → Cross-device → Streaming output** (below).
 - Typing into the native composer forwards the prompt to that computer and appends the reply here; the local model is gated off, so it will not answer a second time.
 - Each computer mirrors its **10 most recent** non-subagent Sessions (running ones are kept even beyond that), grouped by remote project. New remote Sessions appear within about 60 seconds and opening one immediately pulls the latest records.
-- **When a computer goes offline its group is removed**, and rebuilt with the same mirror Session ids when it returns — no duplicates.
+- **Offline computers keep their cached remote Workspaces and mirror history**; temporary disconnection or a missing mapping no longer auto-archives local mirror Sessions. When the peer returns, existing mirror ids are reused and assigned to their current projects.
 - **Creating a Session inside a remote group** creates the Session on that computer; its first prompt and every reply run there.
-- **Archive syncs both ways**: archiving a remote Session here archives it there, and archiving there brings the mirror in line. Each mirror stores the direction the user asked for separately from the temporary state the plugin writes itself: rows hidden while the peer is offline are restored with that direction (including mirrors outside the recent-ten window), and a failed push is retried on the next pass, so an unarchive is never flipped back.
+- **Archive syncs both ways**: a user-initiated archive here reaches the remote, and a user-initiated remote archive updates the mirror. A peer going offline or a temporarily missing mapping is not treated as archive intent; legacy temporary offline archives are restored from the saved user direction, and failed pushes retry on the next pass.
 - **Model / reasoning effort sync both ways**: changing the local selector (or the remote-settings gear) reaches the computer that executes prompts within 5 seconds, and is pushed again right before a prompt is sent. Changes made there sync back to the mirror. Agent presets are controlled by the remote-settings gear.
 
 ### 2. Cross-device manager
@@ -325,6 +325,8 @@ Deeper design notes live in [docs/architecture.md](docs/architecture.md); instal
 
 | Component | Version | Notes |
 | --- | --- | --- |
+| DSH Link plugin | 1.3.6 | Prevents mirror Sessions from being auto-archived when a peer is offline, a v1 mirror layout is migrated, or a mapping is temporarily missing; keeps cached Workspaces and Session mappings and adds regression coverage. |
+| DSH Link plugin | 1.3.5 | Merges reconnect snapshots instead of replacing already-rendered live messages; improves forced workspace refresh and protects a populated remote project list from one transient empty response; adjusts the running spinner. |
 | DSH Link plugin | 1.3.4 | Fixes two features that never worked: the question answerer now registers ahead of the Web client bridge (previously the bridge held every question and a peer never saw it), blocking questions without a call id are forwarded, the relay's peer object is normalized before mirror lookup, one failing peer no longer cancels the whole offer, the answer card opens from anywhere with its source, and streaming output is on by default. Previous: mirror logs that made every remote Session fail with "history load failed" |
 | DSH Link plugin | 1.3.3 | Fixes mirror logs that made every remote Session fail with "history load failed": rich events that cite other events by seq are no longer mirrored, the Turn/Step position is read back from the log, and a tool call whose result never arrived is settled; mirrors written by an older writer are verified and rebuilt after the upgrade. Previous: session status dots and running indicator, remote question forwarding, image sending, goal/task-board rich event mirroring, and steer-while-running instead of silent queueing; the stylesheet now mounts for the whole plugin, so the sidebar gear keeps its styles once a conversation takes the main panel, and the row's remote tag is a native-style glyph instead of a pill |
 | Protocol | v1 | New fields are backwards compatible; new methods do not bump `v` |
