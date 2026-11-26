@@ -33,6 +33,16 @@ const CALL_TIMEOUT_MS = 30_000; // §2.3 orphan call cleanup
 // Speech recognition may need to load the local model on first use; give that
 // one method a longer relay-side window (the caller still owns its own timeout).
 const SPEECH_CALL_TIMEOUT_MS = 180_000;
+// A question waits for a human, so the answering Host holds the call until the
+// user decides. This window must outlast the asking Host's own wait, otherwise
+// the relay reaps the call while the card is still on screen and the answer has
+// nowhere to go.
+const QUESTION_CALL_TIMEOUT_MS = 660_000;
+/** Relay window per method; every other method keeps the orphan-cleanup default. */
+const CALL_TIMEOUT_BY_METHOD = new Map([
+  ['speech.transcribe', SPEECH_CALL_TIMEOUT_MS],
+  ['session.question', QUESTION_CALL_TIMEOUT_MS],
+]);
 const DEVICE_ID_RE = /^[A-Za-z0-9_-]{3,64}$/;
 const MAX_NAME_LENGTH = 128;
 const MAX_ID_LENGTH = 128;
@@ -383,7 +393,7 @@ function onCall(conn, msg, kind) {
     acked: false,
   };
 
-  const timeoutMs = msg.method === 'speech.transcribe' ? SPEECH_CALL_TIMEOUT_MS : CALL_TIMEOUT_MS;
+  const timeoutMs = CALL_TIMEOUT_BY_METHOD.get(msg.method) ?? CALL_TIMEOUT_MS;
   entry.timer = setTimeout(() => {
     if (pendingByRid.get(rid) !== entry) return;
     // Subscriptions already acknowledged are long-lived and never time out;
@@ -832,6 +842,7 @@ function start() {
       pingIntervalMs: PING_INTERVAL_MS,
       callTimeoutMs: CALL_TIMEOUT_MS,
       speechCallTimeoutMs: SPEECH_CALL_TIMEOUT_MS,
+      questionCallTimeoutMs: QUESTION_CALL_TIMEOUT_MS,
     });
   });
 

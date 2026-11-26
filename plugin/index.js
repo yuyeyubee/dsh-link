@@ -34,7 +34,7 @@ export const name = 'dsh-link'
 export const inject = ['tools', 'systemPrompt', 'credentials']
 
 /** Version reported to peers and the Web UI. */
-const VERSION = '1.3.7'
+const VERSION = '1.3.8'
 /** On-disk config document version. */
 const CONFIG_VERSION = 1
 /** Same-origin API route used by the Client half. */
@@ -58,6 +58,13 @@ const MAX_PROMPT_IMAGES = 8
 const MAX_PROMPT_IMAGE_BYTES = 8 * 1024 * 1024
 /** How long a forwarded remote question stays open for a peer answer. */
 const QUESTION_TIMEOUT_MS = 10 * 60_000
+/**
+ * How long a question waits for the peers to accept or refuse it before the
+ * local card may appear. A peer without a mirror refuses instantly; a peer that
+ * owns the mirror answers nothing at all, which is how "it is showing the card"
+ * is detected.
+ */
+const PEER_QUESTION_GRACE_MS = 1_200
 /** Best-effort cancellation deadline for losing question peers. */
 const QUESTION_CANCEL_TIMEOUT_MS = 5_000
 /** Text caps that keep relay frames bounded. */
@@ -1345,6 +1352,10 @@ class LinkHost {
    * without ever calling `next()`, so a peer would never see it at all.
    */
   async handlePeerQuestion(request, next) {
+    // A question this Host is only relaying from another computer must never be
+    // offered back to the peers: `askNativeQuestion` raises it here so the local
+    // user sees DSH's own card, and re-offering it would bounce it right back.
+    if (request?.linkRelayedQuestion === true) return next()
     const agent = request?.agent
     const sessionId = agent?.session?.id ?? agent?.session?.header?.id
     const callId = request?.wait?.callId
@@ -1364,11 +1375,13 @@ class LinkHost {
     const questionId = typeof callId === 'string' && callId.length > 0
       ? `${sessionId}:${callId}`
       : `${sessionId}:blocking-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-    // Run the rest of the chain right away so the local UI can present the same
-    // question: a peer answer and a local answer race, whichever lands first.
-    const local = Promise.resolve()
-      .then(() => next())
-      .then((value) => ({ kind: 'local', value }), (error) => ({ kind: 'local-error', error }))
+    const abortError = () => request?.signal?.reason ?? peerQuestionError('remote question aborted', 'ASK_ABORTED')
+    if (request?.signal?.aborted === true) throw abortError()
+    // A peer that owns the mirror keeps this call open until its user answers;
+    // that card *is* the question on screen. Presenting the local card at the
+    // same time would leave a second card nothing can settle once the peer
+    // answers, so the rest of the chain only runs when no peer holds it.
+    let outstanding = this.peers.length
     const offered = this.offerQuestion({
       questionId,
       sessionId,
@@ -1376,60 +1389,46 @@ class LinkHost {
       questions,
       timed: request?.wait?.timed === true,
       signal: request?.signal,
+    }, (count) => {
+      outstanding = count
     }).catch(() => undefined)
-    const outcome = await new Promise((resolve) => {
-      let settled = false
-      let localResult
-      let peersExhausted = false
-      const finish = (value) => {
-        if (settled) return
-        settled = true
-        request?.signal?.removeEventListener?.('abort', onAbort)
-        resolve(value)
-      }
-      const onAbort = () => finish({ kind: 'abort' })
-      if (request?.signal?.aborted === true) {
-        finish({ kind: 'abort' })
-        return
-      }
-      request?.signal?.addEventListener?.('abort', onAbort, { once: true })
-      local.then((result) => {
-        localResult = result
-        // Only a real answer batch from the remaining chain beats a peer answer:
-        // a delegated fallback value (or a refusal) means no local answerer took
-        // the question, so the peer offer must keep its chance.
-        if (result.kind === 'local' && isQuestionAnswer(result.value)) {
-          finish({ kind: 'local', value: result.value })
-          return
-        }
-        if (peersExhausted) finish(result)
-      })
-      offered.then((answers) => {
-        if (answers !== undefined) {
-          finish({ kind: 'peer', answers })
-          return
-        }
-        peersExhausted = true
-        if (localResult !== undefined && localResult.kind === 'local-error') finish(localResult)
-      })
+    // Resolves (never rejects) so a late abort cannot surface as an unhandled
+    // rejection after this listener already returned.
+    const aborted = new Promise((resolve) => {
+      request?.signal?.addEventListener?.('abort', () => resolve({ kind: 'abort' }), { once: true })
     })
-    if (outcome.kind === 'local') {
-      // The local answerer answered first: let the peers drop their cards.
+    const gracing = new Promise((resolve) => {
+      const timer = setTimeout(() => resolve({ kind: 'grace' }), PEER_QUESTION_GRACE_MS)
+      timer.unref?.()
+    })
+    const first = await Promise.race([
+      offered.then((answers) => ({ kind: 'peer', answers })),
+      gracing,
+      aborted,
+    ])
+    if (first.kind === 'abort') throw abortError()
+    if (first.kind === 'peer' && first.answers !== undefined) return { answers: first.answers }
+    // A peer answered nothing but replied nothing either: it is holding the
+    // card. Wait for that answer instead of stacking a local one on top.
+    if (outstanding > 0) {
+      const settled = await Promise.race([offered, aborted])
+      if (settled !== undefined && settled?.kind !== 'abort') return { answers: settled }
+      if (settled?.kind === 'abort') throw abortError()
+    }
+    // Every peer gave up: the shipped chain is the only answerer left, so the
+    // local card (and every answerer behind it) runs exactly as before.
+    const local = await Promise.race([
+      Promise.resolve().then(() => next()).then((value) => ({ kind: 'local', value }), (error) => ({ kind: 'local-error', error })),
+      aborted,
+    ])
+    if (local.kind === 'abort') throw abortError()
+    if (local.kind === 'local-error') throw local.error
+    if (isQuestionAnswer(local.value)) {
+      // The local user answered: let any peer that still shows the card drop it.
       this.cancelPeerOffers(questionId)
-      return outcome.value
+      return local.value
     }
-    if (outcome.kind === 'local-error') {
-      // Peers could not answer either; keep the shipped chain's own failure.
-      throw outcome.error
-    }
-    if (outcome.kind === 'peer') return { answers: outcome.answers }
-    if (outcome.kind === 'abort') {
-      // The waiting window ended (or the Turn was cancelled) before any side
-      // answered: reject with the abort reason so the caller maps it exactly
-      // like its own timed-out wait.
-      throw request?.signal?.reason ?? peerQuestionError('remote question aborted', 'ASK_ABORTED')
-    }
-    throw outcome.error ?? peerQuestionError('no answerer accepted the question', 'NO_PROVIDER')
+    throw peerQuestionError('no answerer accepted the question', 'NO_PROVIDER')
   }
 
   /**
@@ -1438,8 +1437,9 @@ class LinkHost {
    * that cannot answer (no mirror, timeout, cancellation) must not stop the
    * others from answering, so only an accepted answer settles the offer.
    */
-  async offerQuestion(question) {
+  async offerQuestion(question, onOutstanding) {
     const peers = [...this.peers]
+    onOutstanding?.(peers.length)
     if (peers.length === 0 || this.relay === undefined) return undefined
     const answered = await new Promise((resolve) => {
       let settled = false
@@ -1470,9 +1470,11 @@ class LinkHost {
             return
           }
           pending -= 1
+          onOutstanding?.(pending)
           if (pending === 0) finish(undefined)
         }, () => {
           pending -= 1
+          onOutstanding?.(pending)
           if (pending === 0) finish(undefined)
         })
       }
@@ -1494,8 +1496,47 @@ class LinkHost {
     }
   }
 
+  /**
+   * Raise one relayed question on the mirror Session's own Agent.
+   *
+   * DSH renders questions from `userQuestions.ask`, so asking here makes the
+   * local user see DSH's native composer in the mirror Session (options, custom
+   * answer, draft state, pending-interaction indicator) instead of a plugin
+   * dialog. The Agent is resolved first, which resumes the mirror Session the
+   * same way opening it in the UI does.
+   *
+   * @param localSessionId - local mirror Session id.
+   * @param questions - questions exactly as the remote Agent asked them.
+   * @param signal - cancellation for the relayed offer.
+   * @returns `{ answers }` when answered, `{ error }` with the failed step otherwise.
+   */
+  async askNativeQuestion(localSessionId, questions, signal) {
+    const userQuestions = this.service('userQuestions')
+    const controller = this.service('sessionController')
+    if (userQuestions === undefined || controller === undefined) return { error: 'unavailable' }
+    if (typeof userQuestions.ask !== 'function' || typeof controller.resolveAgent !== 'function') return { error: 'unavailable' }
+    const resolved = await Promise.resolve()
+      .then(() => controller.resolveAgent(localSessionId))
+      .catch(() => undefined)
+    const agent = resolved !== null && typeof resolved === 'object' ? resolved.agent : undefined
+    if (agent === undefined) return { error: 'no-agent' }
+    try {
+      const answer = await userQuestions.ask({
+        agent,
+        questions,
+        ...(signal === undefined ? {} : { signal }),
+        // This Host only relays someone else's question; offering it to the
+        // peers again would bounce the same card between the two computers.
+        linkRelayedQuestion: true,
+      })
+      return { answers: Array.isArray(answer?.answers) ? answer.answers : [] }
+    } catch (error) {
+      return { error: 'ask-failed', message: errorMessage(error) }
+    }
+  }
+
   /** Store one question a peer asked and wait for the local user's answer. */
-  handleQuestionCall(relay, rid, caller, params) {
+  async handleQuestionCall(relay, rid, caller, params) {
     // The relay forwards a caller *peer object*, while mirror lookups key on
     // the device id; accept both so a peer question can find its mirror row.
     const from = peerIdOf(caller)
@@ -1514,28 +1555,55 @@ class LinkHost {
       return
     }
     const localSessionId = mirror.entry.localId
-    const entry = { questionId, localSessionId, questions, resolve: undefined, timer: undefined }
-    this.touchMirrorLive(localSessionId, { questionId, questionCount: questions.length })
+    const abort = new AbortController()
+    const entry = { questionId, localSessionId, questions, resolve: undefined, timer: undefined, abort }
     const settled = new Promise((resolve) => {
       entry.resolve = resolve
     })
     this.incomingQuestions.set(questionId, entry)
-    entry.timer = setTimeout(() => {
+    const finish = (result) => {
       if (this.incomingQuestions.get(questionId) !== entry) return
       this.incomingQuestions.delete(questionId)
-      this.touchMirrorLive(localSessionId, { questionId: '', questionCount: 0 })
-      relay.send({ t: 'reply', rid, ok: false, error: { code: 'timeout', message: '问题等待超时' } })
-    }, QUESTION_TIMEOUT_MS)
-    settled.then((answers) => {
       if (entry.timer !== undefined) clearTimeout(entry.timer)
-      if (answers === undefined) {
-        relay.send({ t: 'reply', rid, ok: false, error: { code: 'cancelled', message: '问题已被其他设备回答' } })
+      this.touchMirrorLive(localSessionId, { questionId: '', questionCount: 0 })
+      entry.resolve?.(result)
+    }
+    entry.finish = finish
+    entry.timer = setTimeout(() => {
+      if (this.incomingQuestions.get(questionId) !== entry) return
+      abort.abort(peerQuestionError('question wait timed out', 'ASK_TIMED_OUT'))
+      finish({ kind: 'timeout' })
+    }, QUESTION_TIMEOUT_MS)
+    settled.then((result) => {
+      if (result?.kind === 'answers') {
+        relay.send({ t: 'reply', rid, ok: true, result: { answers: result.answers } })
         return
       }
-      relay.send({ t: 'reply', rid, ok: true, result: { answers } })
+      if (result?.kind === 'timeout') {
+        relay.send({ t: 'reply', rid, ok: false, error: { code: 'timeout', message: '问题等待超时' } })
+        return
+      }
+      if (result?.kind === 'failed') {
+        relay.send({ t: 'reply', rid, ok: false, error: { code: 'internal', message: result.message ?? '问题回答失败' } })
+        return
+      }
+      relay.send({ t: 'reply', rid, ok: false, error: { code: 'cancelled', message: '问题已被其他设备回答' } })
     }).catch(() => {
       relay.send({ t: 'reply', rid, ok: false, error: { code: 'internal', message: '问题回答失败' } })
     })
+    // Native first: the user answers in DSH's own card inside the mirror row.
+    const native = await this.askNativeQuestion(localSessionId, questions, abort.signal)
+    if (native.answers !== undefined) {
+      finish({ kind: 'answers', answers: native.answers })
+      return
+    }
+    if (native.error === 'unavailable' || native.error === 'no-agent') {
+      // No Agent can carry a native card here, so keep the plugin's own card:
+      // a question must never be dropped just because the row cannot host it.
+      this.touchMirrorLive(localSessionId, { questionId, questionCount: questions.length })
+      return
+    }
+    finish({ kind: 'failed', message: native.message })
   }
 
   /** Drop one peer question because another peer already answered it. */
@@ -1545,7 +1613,8 @@ class LinkHost {
     this.incomingQuestions.delete(questionId)
     if (entry.timer !== undefined) clearTimeout(entry.timer)
     this.touchMirrorLive(entry.localSessionId, { questionId: '', questionCount: 0 })
-    entry.resolve?.(undefined)
+    entry.abort?.abort(peerQuestionError('question answered by another device', 'ASK_ABORTED'))
+    entry.resolve?.({ kind: 'cancelled' })
     return true
   }
 
@@ -1574,9 +1643,10 @@ class LinkHost {
     })
     const entry = this.incomingQuestions.get(question.questionId)
     if (entry === undefined) throw new LinkError('not-found', '这个问题已经结束')
-    this.incomingQuestions.delete(question.questionId)
-    this.touchMirrorLive(localSessionId, { questionId: '', questionCount: 0 })
-    entry.resolve?.(normalized)
+    // `finish` clears the pending bookkeeping and the sidebar badge; a stubbed
+    // entry without it still resolves the relay reply.
+    const settle = entry.finish ?? entry.resolve
+    settle?.({ kind: 'answers', answers: normalized })
     return { answered: true }
   }
 
@@ -4330,7 +4400,12 @@ class LinkHost {
     // A question is answered by a human, so its reply is not bound by the RPC
     // timeout: the sending peer decides how long it keeps the offer open.
     if (method === 'session.question') {
-      this.handleQuestionCall(relay, rid, peerIdOf(from), params)
+      // Raising the native card resumes the mirror Session, which can take a
+      // moment: the reply is sent by the question's own settlement, not here.
+      this.handleQuestionCall(relay, rid, peerIdOf(from), params).catch((error) => {
+        this.log('warn', `dsh-link: question ${String(params?.questionId ?? '')}: ${errorMessage(error)}`)
+        relay.send({ t: 'reply', rid, ok: false, error: { code: 'internal', message: '问题处理失败' } })
+      })
       return
     }
     if (method === 'session.questionCancel') {

@@ -96,7 +96,7 @@ relay 转回调用方并还原 id：
 
 - 目标不在线：relay 直接回 `{ "t":"reply", "id":"c1", "ok":false, "error":{"code":"offline","message":"..."} }`。
 - 调用方超时：普通方法 30 秒，`speech.transcribe` 180 秒；超时后丢弃该 id 的迟到 reply。
-- relay 的孤儿调用清理：普通方法 30 秒，`speech.transcribe` 180 秒（给首次加载本地语音模型留时间）。
+- relay 的孤儿调用清理：普通方法 30 秒，`speech.transcribe` 180 秒（给首次加载本地语音模型留时间），`session.question` 660 秒（提问要等人回答，中继窗口必须长于发起方的等待窗口，否则卡片还在屏幕上、答案已无处可回）。
 - `method` 由被调方校验；未知方法回 `bad-request`。
 
 ### 2.4 订阅流（会话实时更新）

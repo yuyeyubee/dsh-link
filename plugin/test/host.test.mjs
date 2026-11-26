@@ -1679,6 +1679,76 @@ test('an open remote question is offered to peers and answered by the first one'
   assert.equal(asked[0][1].callId, 'call-9')
 })
 
+test('a relayed question reaches the peers only once', async () => {
+  const { host } = makeMirrorHost()
+  host.relay = { state: 'connected' }
+  const asked = []
+  host.remoteCall = async (_peerId, method) => {
+    asked.push(method)
+    return {}
+  }
+  // The mirrored Agent raises this request only so the local user sees DSH's
+  // own card; offering it again would bounce the question between the peers.
+  const result = await host.handlePeerQuestion({
+    agent: { session: { id: 'session-mirror' } },
+    wait: { callId: 'call-9', timed: true },
+    questions: [{ id: 'q1', question: '继续吗？' }],
+    linkRelayedQuestion: true,
+  }, () => 'LOCAL-ONLY')
+  assert.equal(result, 'LOCAL-ONLY')
+  assert.deepEqual(asked, [], 'a relayed question is never offered back to a peer')
+})
+
+test('a peer question is answered through DSH native question card', async () => {
+  const { host, services } = makeMirrorHost()
+  const asked = []
+  const answeredWith = []
+  // Stand-ins for the two DSH services the native path uses: resuming the
+  // mirror Session to get its Agent, then asking through the question service.
+  services.sessionController.resolveAgent = async (sessionId) => {
+    asked.push(['resolveAgent', sessionId])
+    return { agent: { id: sessionId, session: { id: sessionId } } }
+  }
+  services.userQuestions = {
+    async ask(request) {
+      asked.push(['ask', request.questions.length, request.linkRelayedQuestion === true, request.agent.session.id])
+      // The user answers DSH's own card: the service returns the batch.
+      return { answers: [{ id: 'q1', selected: ['A'] }] }
+    },
+  }
+  const sent = []
+  await host.handleQuestionCall({ send: (frame) => sent.push(frame) }, 'r1', 'dev_peer', {
+    questionId: 'dev_peer:session-remote:call-9',
+    sessionId: 'session-remote',
+    callId: 'call-9',
+    questions: [{ id: 'q1', question: '继续吗？', options: [{ label: 'A' }, { label: 'B' }] }],
+  })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(asked[0], ['resolveAgent', 'session-mirror'])
+  assert.deepEqual(asked[1], ['ask', 1, true, 'session-mirror'])
+  const reply = sent.find((frame) => frame.t === 'reply')
+  assert.equal(reply.ok, true)
+  assert.deepEqual(reply.result.answers, [{ id: 'q1', selected: ['A'] }])
+  // The native card owns the row: no plugin badge is published for it.
+  assert.equal(host.mirrorStatusList()[0].questionId, '')
+})
+
+test('a peer question falls back to the plugin card when no Agent can host it', async () => {
+  const { host, services } = makeMirrorHost()
+  services.sessionController.resolveAgent = async () => ({ error: { code: 'session/not-found' } })
+  services.userQuestions = { async ask() { throw new Error('must not ask') } }
+  const sent = []
+  await host.handleQuestionCall({ send: (frame) => sent.push(frame) }, 'r1', 'dev_peer', {
+    questionId: 'dev_peer:session-remote:call-9',
+    sessionId: 'session-remote',
+    callId: 'call-9',
+    questions: [{ id: 'q1', question: '继续吗？', options: [{ label: 'A' }] }],
+  })
+  assert.equal(host.mirrorStatusList()[0].questionId, 'dev_peer:session-remote:call-9')
+  assert.equal(sent.length, 0, 'the question stays open for the local card')
+  host.cancelQuestion('dev_peer:session-remote:call-9')
+})
+
 test('a question nobody can answer delegates to the shipped answerers', async () => {
   const { host } = makeMirrorHost()
   host.peers = []
@@ -1694,7 +1764,7 @@ test('a peer question relayed as a peer object still finds its mirror row', asyn
   const { host } = makeMirrorHost()
   const sent = []
   // The relay forwards the caller as `{ id, name }`, not as a bare device id.
-  host.handleQuestionCall({ send: (frame) => sent.push(frame) }, 'r1', { id: 'dev_peer', name: '出差笔记本' }, {
+  await host.handleQuestionCall({ send: (frame) => sent.push(frame) }, 'r1', { id: 'dev_peer', name: '出差笔记本' }, {
     questionId: 'dev_peer:session-remote:call-9',
     sessionId: 'session-remote',
     callId: 'call-9',
@@ -1722,6 +1792,46 @@ test('a blocking question without a call id is still offered to peers', async ()
   assert.equal(asked[0][0], 'session.question')
   assert.equal(asked[0][1].callId, '')
   assert.match(asked[0][1].questionId, /^session-remote:blocking-/)
+})
+
+test('a peer holding the question suppresses the local card', async () => {
+  const { host } = makeMirrorHost()
+  host.relay = { state: 'connected' }
+  let localCalls = 0
+  // The peer owns the mirror and shows the card, so it answers only when its
+  // user decides: the call stays open past the grace window.
+  host.remoteCall = async (_peerId, method) => {
+    if (method !== 'session.question') return {}
+    await new Promise((resolve) => setTimeout(resolve, 1_500))
+    return { answers: [{ id: 'q1', selected: ['B'] }] }
+  }
+  const result = await host.handlePeerQuestion({
+    agent: { session: { id: 'session-remote' } },
+    wait: { callId: 'call-9', timed: true },
+    questions: [{ id: 'q1', question: '继续吗？', options: [{ label: 'A' }, { label: 'B' }] }],
+  }, () => {
+    localCalls += 1
+    return 'LOCAL'
+  })
+  assert.deepEqual(result, { answers: [{ id: 'q1', selected: ['B'] }] })
+  // A second local card would be the same question on screen twice, and the
+  // peer's answer could never settle it.
+  assert.equal(localCalls, 0)
+})
+
+test('the local card appears once every peer refuses', async () => {
+  const { host } = makeMirrorHost()
+  host.relay = { state: 'connected' }
+  host.remoteCall = async (_peerId, method) => {
+    if (method !== 'session.question') return {}
+    throw new Error('no mirror on that peer')
+  }
+  const result = await host.handlePeerQuestion({
+    agent: { session: { id: 'session-remote' } },
+    wait: { callId: 'call-9', timed: true },
+    questions: [{ id: 'q1', question: '继续吗？' }],
+  }, () => ({ answers: [{ id: 'q1', selected: ['A'] }] }))
+  assert.deepEqual(result, { answers: [{ id: 'q1', selected: ['A'] }] })
 })
 
 test('a permission approval stays on the machine that owns the work', async () => {
@@ -1770,7 +1880,7 @@ test('an incoming peer question becomes locally answerable and replies once', as
   const { host } = makeMirrorHost()
   const sent = []
   const relay = { send: (frame) => sent.push(frame) }
-  host.handleQuestionCall(relay, 'r1', 'dev_peer', {
+  await host.handleQuestionCall(relay, 'r1', 'dev_peer', {
     questionId: 'dev_peer:session-remote:call-9',
     sessionId: 'session-remote',
     callId: 'call-9',
@@ -1793,7 +1903,7 @@ test('an incoming peer question becomes locally answerable and replies once', as
 test('HTTP mirrorStatus and answerQuestion expose the live question', async () => {
   const { host } = makeMirrorHost()
   const sent = []
-  host.handleQuestionCall({ send: (frame) => sent.push(frame) }, 'r1', 'dev_peer', {
+  await host.handleQuestionCall({ send: (frame) => sent.push(frame) }, 'r1', 'dev_peer', {
     questionId: 'dev_peer:session-remote:call-9',
     sessionId: 'session-remote',
     callId: 'call-9',

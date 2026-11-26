@@ -795,17 +795,30 @@ window.__ModuleLoader__.load({
          that outshouts the title it annotates. */
       .dsh-link-remote-mark { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 16px; color: var(--dsw-alias-label-caption); }
       .dsh-link-native-gear.is-header.is-question { width: auto; padding: 0 8px; font-size: 11px; font-weight: 600; color: var(--dsw-alias-state-warn-label); }
-      .dsh-link-status-dot { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; color: var(--dsw-alias-state-idle-primary); }
-      .dsh-link-status-dot.is-running { color: var(--dsw-alias-state-business-primary); }
-      .dsh-link-status-dot.is-waiting { color: var(--dsw-alias-state-warn-primary); }
-      .dsh-link-status-dot.is-done { color: var(--dsw-alias-state-success-primary); }
-      .dsh-link-status-dot.is-error { color: var(--dsw-alias-state-error-primary); }
-      .dsh-link-status-dot.is-running::before { content: ''; width: 13px; height: 13px; box-sizing: border-box; border-radius: 50%; border: 2px solid currentColor; border-top-color: transparent; animation: dsh-link-spin .8s linear infinite; }
-      .dsh-link-status-dot.is-waiting::before, .dsh-link-status-dot.is-done::before, .dsh-link-status-dot.is-error::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-      .dsh-link-status-dot.is-error::before { width: 9px; height: 9px; border-radius: 2px; }
+      /* DSH's own Session state marker, copied block for block from the shipped
+         StateDot: an orbiting arc while a turn runs, a plain tinted dot
+         otherwise. A mirrored row must be indistinguishable from a local one,
+         so the geometry, tokens and timing are the shipped ones, not a
+         lookalike spinner. */
+      .dsh-link-state-seat { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; }
+      .dsh-link-state-spinner { flex: none; color: var(--dsw-alias-label-tertiary); }
+      .dsh-link-state-spinner-motion { transform-origin: center; animation: dsh-link-state-spin 1.5s linear infinite; }
+      .dsh-link-state-spinner-track, .dsh-link-state-spinner-arc { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+      .dsh-link-state-spinner-track { opacity: .25; }
+      .dsh-link-state-spinner-arc { stroke-dasharray: 12 150; animation: dsh-link-state-dash 1.5s ease-in-out infinite; }
+      @keyframes dsh-link-state-spin { to { transform: rotate(360deg); } }
+      @keyframes dsh-link-state-dash { 0% { stroke-dasharray: 12 150; stroke-dashoffset: 0; } 50% { stroke-dasharray: 24 150; stroke-dashoffset: -6; } to { stroke-dasharray: 12 150; stroke-dashoffset: 0; } }
+      .dsh-link-state-dot { position: relative; display: inline-block; flex: none; }
+      .dsh-link-state-dot::after { content: ''; position: absolute; inset: 20%; border-radius: 50%; background: currentColor; }
+      .dsh-link-state-dot[data-state='done'] { color: var(--dsw-alias-state-success-primary); }
+      .dsh-link-state-dot[data-state='warning'] { color: var(--dsw-alias-state-warn-primary); }
+      .dsh-link-state-dot[data-state='error'] { color: var(--dsw-alias-state-error-primary); }
+      .dsh-link-state-dot[data-state='idle'] { color: var(--dsw-alias-state-idle-primary); }
+      @media (prefers-reduced-motion: reduce) {
+        .dsh-link-state-spinner-motion, .dsh-link-state-spinner-arc { animation: none; }
+        .dsh-link-state-spinner-arc { stroke-dasharray: 18 150; stroke-dashoffset: -3; }
+      }
       .dsh-link-status-count { flex: none; font-size: 10px; line-height: 1; color: var(--dsw-alias-state-warn-label); }
-      @keyframes dsh-link-spin { to { transform: rotate(360deg); } }
-      @media (prefers-reduced-motion: reduce) { .dsh-link-status-dot.is-running::before { animation-duration: 2.4s; } }
       .dsh-link-status-count.is-question { font-weight: 700; }
       .dsh-link-question { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
       .dsh-link-question-source { font-size: 11.5px; color: var(--dsw-alias-label-tertiary); margin-bottom: -6px; }
@@ -1197,19 +1210,50 @@ window.__ModuleLoader__.load({
       void version
       return viewStore.open.has(sessionId)
     }
+    /**
+     * DSH's own Session state marker.
+     *
+     * The shipped `StateDot` renders an orbiting arc for `ongoing` and a tinted
+     * dot for every other state. A mirrored row sits in the same leading seat as
+     * a local one, so it uses the same geometry and timing: a remote turn must
+     * look exactly like a local turn that is still running.
+     */
+    function StateDot({ state, size }) {
+      const dimension = Number.isFinite(size) ? size : (state === 'ongoing' ? 14 : 10)
+      if (state === 'ongoing') {
+        return h('svg', {
+          className: 'dsh-link-state-spinner',
+          'data-state': 'ongoing',
+          width: dimension,
+          height: dimension,
+          viewBox: '0 0 24 24',
+          'aria-hidden': 'true',
+        }, h('g', { className: 'dsh-link-state-spinner-motion' },
+          h('circle', { className: 'dsh-link-state-spinner-track', cx: 12, cy: 12, r: 9.5 }),
+          h('circle', { className: 'dsh-link-state-spinner-arc', cx: 12, cy: 12, r: 9.5 }),
+        ))
+      }
+      return h('span', {
+        className: 'dsh-link-state-dot',
+        'data-state': state,
+        style: { width: dimension, height: dimension },
+        'aria-hidden': 'true',
+      })
+    }
+
     /** Derive the row indicator from one live status record. */
     function mirrorStatusView(live, sessionId, open) {
       if (live === null || typeof live !== 'object') return null
       // A pending question is published as a native pending interaction, so the
       // shipped row already shows its own warning dot for it.
-      if (live.running === true) return { className: 'is-running', label: 'mirror.statusRunning' }
+      if (live.running === true) return { state: 'ongoing', label: 'mirror.statusRunning' }
       if (open === true) return null
       const settledAt = Number.isFinite(live.settledAt) ? live.settledAt : 0
       if (settledAt <= 0) return null
       if (settledAt <= (acknowledgedAt.get(sessionId) ?? 0)) return null
       if (Date.now() - settledAt >= STATUS_DOT_LINGER_MS) return null
-      if (live.settleReason === 'error') return { className: 'is-error', label: 'mirror.statusFailed' }
-      if (live.settleReason === 'completed') return { className: 'is-done', label: 'mirror.statusDone' }
+      if (live.settleReason === 'error') return { state: 'error', label: 'mirror.statusFailed' }
+      if (live.settleReason === 'completed') return { state: 'done', label: 'mirror.statusDone' }
       return null
     }
     /** Human-readable queued count suffix for one live status record. */
@@ -1282,11 +1326,11 @@ window.__ModuleLoader__.load({
         const status = mirrorStatusView(live, sessionId, open)
         if (status === null) return null
         return React.createElement('span', {
-          className: cls('dsh-link-status-dot', status.className),
+          className: 'dsh-link-state-seat',
           role: 'status',
           title: t(status.label),
           'aria-label': t(status.label),
-        })
+        }, React.createElement(StateDot, { state: status.state }))
       }
     }
 
@@ -2193,7 +2237,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'dsh-link-role' }, t('role.assistant')),
           ...parts,
           h('div', { className: 'dsh-link-live-status', role: 'status' },
-            h('span', { className: 'dsh-link-dot is-ok is-pulse' }),
+            h(StateDot, { state: 'ongoing', size: 12 }),
             t('live.generating'),
           ),
         ),
@@ -3975,7 +4019,7 @@ window.__ModuleLoader__.load({
             h('span', { className: 'dsh-link-browser-session-main' },
               h('span', { className: 'dsh-link-browser-session-title' }, sessionTitle),
               h('span', { className: 'dsh-link-browser-session-meta' },
-                session.running ? h('span', { className: 'dsh-link-dot is-ok is-pulse' }) : null,
+                session.running ? h(StateDot, { state: 'ongoing', size: 12 }) : null,
                 session.running ? h('span', null, t('running')) : null,
                 updated !== '' ? h('span', null, updated) : null,
                 session.cwd !== '' && session.title === '' ? h('span', null, session.cwd) : null,
