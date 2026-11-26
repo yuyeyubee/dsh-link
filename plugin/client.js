@@ -207,6 +207,7 @@ window.__ModuleLoader__.load({
         'browser.noMatches': 'No projects or sessions match your search.',
         'browser.allArchived': 'All sessions are archived. Show archived sessions to open them.',
         'browser.loadFailed': 'Could not load this workspace',
+        'browser.staleEmpty': 'The remote device briefly returned an empty project list. Showing the last results and retrying.',
         'browser.loading': 'Loading workspaces…',
         'browser.projectCount': '{n} sessions',
         'browser.archivedCount': '{n} archived',
@@ -447,6 +448,7 @@ window.__ModuleLoader__.load({
         'browser.noMatches': '没有匹配的项目或会话。',
         'browser.allArchived': '所有会话都已归档。显示已归档会话后才能打开。',
         'browser.loadFailed': '无法加载这个工作区',
+        'browser.staleEmpty': '远程设备暂时返回了空项目列表，先保留上次结果并继续重试。',
         'browser.loading': '正在加载工作区…',
         'browser.projectCount': '{n} 个会话',
         'browser.archivedCount': '{n} 个已归档',
@@ -798,7 +800,7 @@ window.__ModuleLoader__.load({
       .dsh-link-status-dot.is-waiting { color: var(--dsw-alias-state-warn-primary); }
       .dsh-link-status-dot.is-done { color: var(--dsw-alias-state-success-primary); }
       .dsh-link-status-dot.is-error { color: var(--dsw-alias-state-error-primary); }
-      .dsh-link-status-dot.is-running::before { content: ''; width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid currentColor; border-top-color: transparent; animation: dsh-link-spin .9s linear infinite; }
+      .dsh-link-status-dot.is-running::before { content: ''; width: 13px; height: 13px; box-sizing: border-box; border-radius: 50%; border: 2px solid currentColor; border-top-color: transparent; animation: dsh-link-spin .8s linear infinite; }
       .dsh-link-status-dot.is-waiting::before, .dsh-link-status-dot.is-done::before, .dsh-link-status-dot.is-error::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
       .dsh-link-status-dot.is-error::before { width: 9px; height: 9px; border-radius: 2px; }
       .dsh-link-status-count { flex: none; font-size: 10px; line-height: 1; color: var(--dsw-alias-state-warn-label); }
@@ -1448,9 +1450,31 @@ window.__ModuleLoader__.load({
       return record !== null && typeof record === 'object' && typeof record.kind === 'string'
     }
 
+    /** Merge a reconnect snapshot without dropping records already seen live. */
+    function mergeSnapshotRecords(previous, incoming) {
+      const merged = []
+      const seen = new Set()
+      for (const record of [...(Array.isArray(previous) ? previous : []), ...(Array.isArray(incoming) ? incoming : [])]) {
+        if (!isChatRecord(record)) continue
+        const key = recordKey(record)
+        if (key !== '' && seen.has(key)) continue
+        if (key !== '') seen.add(key)
+        merged.push(record)
+      }
+      merged.sort((left, right) => {
+        const leftSeq = Number.isFinite(left.seq) && left.seq >= 0 ? left.seq : null
+        const rightSeq = Number.isFinite(right.seq) && right.seq >= 0 ? right.seq : null
+        if (leftSeq !== null && rightSeq !== null) return leftSeq - rightSeq
+        if (leftSeq !== null) return -1
+        if (rightSeq !== null) return 1
+        return 0
+      })
+      return merged.slice(-MAX_RECORDS)
+    }
+
     /** Stable identity for de-duplicating snapshot + live records. */
     function recordKey(record) {
-      if (typeof record.seq === 'number' && Number.isFinite(record.seq)) return `${record.kind}:${record.seq}`
+      if (typeof record.seq === 'number' && Number.isFinite(record.seq) && record.seq >= 0) return `${record.kind}:${record.seq}`
       return ''
     }
 
@@ -1825,8 +1849,11 @@ window.__ModuleLoader__.load({
             if (disposed) return
             setView((previous) => ({
               ...previous,
-              records,
-              live,
+              // Some Hosts send another partial snapshot after reconnecting or
+              // resuming a follow. Treat it as a merge, not a replacement, so
+              // records already rendered from the live event stream survive.
+              records: mergeSnapshotRecords(previous.records, records),
+              live: live === null ? previous.live : live,
               state: state === null ? previous.state : state,
               phase: 'connected',
               error: '',
@@ -3593,6 +3620,7 @@ window.__ModuleLoader__.load({
         const statusSeq = React.useRef(0)
         const treeSeq = React.useRef(new Map())
         const treesRef = React.useRef({})
+        const emptyTreeStreak = React.useRef(new Map())
         const aliveRef = React.useRef(true)
         const menuRef = React.useRef(null)
         const toastTimer = React.useRef(null)
@@ -3634,7 +3662,7 @@ window.__ModuleLoader__.load({
         const loadTree = React.useCallback(async (tabKey, options) => {
           const force = options !== undefined && options.force === true
           const entry = treesRef.current[tabKey]
-          if (entry !== undefined && entry.loading === true) return
+          if (entry !== undefined && entry.loading === true && !force) return
           if (!force && entry !== undefined && entry.tree !== null && Date.now() - entry.at < 10_000) return
           const current = (treeSeq.current.get(tabKey) ?? 0) + 1
           treeSeq.current.set(tabKey, current)
@@ -3653,9 +3681,30 @@ window.__ModuleLoader__.load({
           try {
             const raw = tabKey === 'local' ? await api.tree() : await api.tree(tabKey)
             if (!aliveRef.current || treeSeq.current.get(tabKey) !== current) return
+            const nextTree = normalizeTree(raw)
+            const previousTree = entry !== undefined ? entry.tree : null
+            const hadRemoteContent = tabKey !== 'local' && previousTree !== null
+              && (previousTree.workspaces.length > 0 || previousTree.orphanSessions.length > 0)
+            const returnedEmpty = nextTree.workspaces.length === 0 && nextTree.orphanSessions.length === 0
+            if (hadRemoteContent && returnedEmpty) {
+              const streak = (emptyTreeStreak.current.get(tabKey) ?? 0) + 1
+              emptyTreeStreak.current.set(tabKey, streak)
+              // A single transient empty response must not make a populated
+              // remote computer disappear. Accept a real empty state only
+              // after it is confirmed by the next refresh.
+              if (streak < 2) {
+                setTrees((previous) => ({
+                  ...previous,
+                  [tabKey]: { tree: previousTree, error: t('browser.staleEmpty'), loading: false, at: Date.now() },
+                }))
+                return
+              }
+            } else {
+              emptyTreeStreak.current.set(tabKey, 0)
+            }
             setTrees((previous) => ({
               ...previous,
-              [tabKey]: { tree: normalizeTree(raw), error: '', loading: false, at: Date.now() },
+              [tabKey]: { tree: nextTree, error: '', loading: false, at: Date.now() },
             }))
           } catch (error) {
             if (!aliveRef.current || treeSeq.current.get(tabKey) !== current) return
