@@ -380,6 +380,98 @@ test('cleanup', () => {
   rmSync(process.env.DSH_HOME, { recursive: true, force: true })
 })
 
+test('one remote response keeps its narration and tool calls in one assistant message', async () => {
+  const { mapWireEvent } = await import('../index.js')
+  // The remote log holds one message per model response: narration text and the
+  // response's tool calls are sibling blocks, not separate messages.
+  const record = mapWireEvent({
+    type: 'assistant/message',
+    seq: 7,
+    time: 7,
+    data: {
+      turn: 2,
+      step: 4,
+      message: {
+        id: 'm1',
+        role: 'assistant',
+        source: { kind: 'model', provider: 'p', model: 'm' },
+        content: [
+          { type: 'reasoning', text: '想一下' },
+          { type: 'text', text: '我先看一下仓库结构。' },
+          { type: 'tool-call', id: 'call-1', name: 'bash', arguments: '{"command":"ls"}' },
+        ],
+      },
+    },
+  })
+  assert.equal(record.kind, 'assistant')
+  assert.equal(record.text, '我先看一下仓库结构。')
+  assert.equal(record.reasoning, '想一下')
+  assert.deepEqual(record.toolCalls, [{ callId: 'call-1', name: 'bash', args: '{"command":"ls"}' }])
+})
+
+test('a mirrored response carries narration and tool calls in the same message', () => {
+  const services = makeServices()
+  const host = makeHost(services)
+  const session = makeFakeSession('session-merged')
+  services.liveSessions.set('session-merged', session)
+  const entry = { localId: 'session-merged', remoteSeq: -1, pendingUserTexts: [] }
+  host.appendMirrorRecords(entry, [
+    { kind: 'turn-start', seq: 1, time: 1, turn: 1 },
+    { kind: 'user', seq: 2, time: 2, text: '查一下' },
+    {
+      kind: 'assistant',
+      seq: 3,
+      time: 3,
+      turn: 1,
+      step: 1,
+      text: '我先看一下目录。',
+      reasoning: '想一下',
+      toolCalls: [{ callId: 'c1', name: 'bash', args: '{"command":"ls"}' }],
+    },
+    { kind: 'tool-call', seq: 4, time: 4, turn: 1, step: 1, callId: 'c1', name: 'bash', args: '{"command":"ls"}' },
+    { kind: 'tool-result', seq: 5, time: 5, turn: 1, step: 1, callId: 'c1', name: 'bash', isError: false, text: 'a.txt' },
+    { kind: 'turn-end', seq: 6, time: 6, turn: 1, reason: 'completed' },
+  ])
+  assert.deepEqual(session.events.map((event) => event.type), [
+    'turn/start', 'user/message', 'step/start', 'assistant/message',
+    'tool/call', 'tool/result', 'step/end', 'turn/end',
+  ])
+  // Exactly one message: splitting the text out would let the tool-call message
+  // that follows it replace the Step's rendered content.
+  const assistant = session.events.find((event) => event.type === 'assistant/message')
+  assert.deepEqual(assistant.data.message.content.map((block) => block.type), ['reasoning', 'text', 'tool-call'])
+  assert.equal(assistant.data.message.content[1].text, '我先看一下目录。')
+  assert.equal(session.events.find((event) => event.type === 'tool/call').data.callId, 'c1')
+})
+
+test('a replayed response does not advertise its tool calls twice', () => {
+  const services = makeServices()
+  const host = makeHost(services)
+  const session = makeFakeSession('session-replay')
+  services.liveSessions.set('session-replay', session)
+  // The first session already holds the advertisement; the tool/call record is
+  // replayed afterwards, and it must not write a second assistant message.
+  host.appendMirrorRecords({ localId: 'session-replay', remoteSeq: -1, pendingUserTexts: [] }, [
+    { kind: 'turn-start', seq: 1, time: 1, turn: 1 },
+    {
+      kind: 'assistant',
+      seq: 2,
+      time: 2,
+      turn: 1,
+      step: 1,
+      text: '开始。',
+      toolCalls: [{ callId: 'c7', name: 'bash', args: '{}' }],
+    },
+  ])
+  const entry = { localId: 'session-replay', remoteSeq: 2, pendingUserTexts: [] }
+  // A fresh Host re-derives the advertisement state from the log, not memory.
+  host.appendMirrorRecords(entry, [
+    { kind: 'tool-call', seq: 3, time: 3, turn: 1, step: 1, callId: 'c7', name: 'bash', args: '{}' },
+  ])
+  assert.equal(session.events.filter((event) => event.type === 'assistant/message').length, 1)
+  assert.equal(session.events.filter((event) => event.type === 'tool/call').length, 1)
+})
+
 test('mirror records append native tool events instead of folded text', () => {
   const services = makeServices()
   const host = makeHost(services)

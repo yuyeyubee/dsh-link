@@ -3,7 +3,7 @@
 > 用一台你自己的公网 relay，把多台电脑上的 **DeepSeek Harness（DSH）** 和 **Android 手机** 连成一个只属于你的私有空间：在这台电脑上直接看到、打开、操作另一台电脑的 DSH 会话；本机 AI 也能用工具驱动远程 DSH；手机可以连接多台电脑，并用语音输入把话发到指定电脑、由那台电脑本地识别后把文字传回手机。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Plugin](https://img.shields.io/badge/plugin-1.3.6-brightgreen)
+![Plugin](https://img.shields.io/badge/plugin-1.3.7-brightgreen)
 ![Protocol](https://img.shields.io/badge/protocol-v1-blue)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84)
 
@@ -330,6 +330,7 @@ node tools/probe-client.mjs --pairing-file ~/.dsh/dsh-link/pairing-code.txt --me
 
 | 组件 | 版本 | 说明 |
 | --- | --- | --- |
+| DSH Link 插件 | 1.3.7 | 修复远程执行过程中的旁白文本在本机镜像里看不到：远程一次模型响应中的旁白文本与工具调用原本被拆成两条助手消息，镜像现在按原样写进同一条消息，旁白与工具调用一起保留。|
 | DSH Link 插件 | 1.3.6 | 修复远程设备离线、旧版镜像迁移或镜像映射暂时缺失时，错误自动归档本机镜像会话；保留缓存工作区与会话映射，补齐离线恢复测试。|
 | DSH Link 插件 | 1.3.5 | 修复远程会话重连时流式快照覆盖已显示消息；改善远程工作区强制刷新与短暂空列表处理，避免项目突然消失；调整运行中旋转标志样式。|
 | DSH Link 插件 | 1.3.4 | 修复远程问答与流式文本两处不生效：问答监听器改为前置注册，不再被 Web 客户端桥接挡住（此前远程提问永远到不了对端）；接受无 callId 的阻塞式提问；来电方按 relay 的 peer 对象归一化后查找镜像；对端一个设备失败不再取消整轮提问；镜像会话的问答卡片改为全局弹出并带来源；**流式输出**开关默认开启后逐字显示。上一版：修复镜像日志损坏导致远程会话「历史加载失败」 |

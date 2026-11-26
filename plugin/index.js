@@ -34,7 +34,7 @@ export const name = 'dsh-link'
 export const inject = ['tools', 'systemPrompt', 'credentials']
 
 /** Version reported to peers and the Web UI. */
-const VERSION = '1.3.6'
+const VERSION = '1.3.7'
 /** On-disk config document version. */
 const CONFIG_VERSION = 1
 /** Same-origin API route used by the Client half. */
@@ -70,6 +70,8 @@ const MAX_TEXT = 8 * 1024
 const MAX_ARGS = 64 * 1024
 const MAX_TOOL_TEXT = 64 * 1024
 const MAX_REASONING = 4 * 1024
+/** Tool calls one mirrored Assistant message may advertise. */
+const MAX_TOOL_CALLS_PER_MESSAGE = 64
 /** Per-event cap for verbatim rich Session events mirrored to peers. */
 const MAX_EVENT_BYTES = 32 * 1024
 
@@ -318,6 +320,27 @@ function reasoningOfMessage(message) {
   return parts.join('\n').trim()
 }
 
+/** Describe the tool-call blocks of one Message, in order. */
+function toolCallsOfMessage(message) {
+  if (message === null || typeof message !== 'object') return []
+  const content = Array.isArray(message.content) ? message.content : []
+  const calls = []
+  for (const block of content) {
+    if (block === null || typeof block !== 'object') continue
+    if (block.type !== 'tool-call') continue
+    if (typeof block.id !== 'string' || block.id.length === 0) continue
+    // A record travels over the relay: one response holding a pathological batch
+    // must not turn into megabytes of duplicated arguments.
+    if (calls.length >= MAX_TOOL_CALLS_PER_MESSAGE) break
+    calls.push({
+      callId: block.id,
+      name: typeof block.name === 'string' && block.name.length > 0 ? block.name : 'tool',
+      args: typeof block.arguments === 'string' ? truncate(block.arguments, MAX_ARGS) : '{}',
+    })
+  }
+  return calls
+}
+
 /** Join the text blocks of a list of user messages for mirror forwarding. */
 function extractUserMessageText(messages) {
   if (!Array.isArray(messages)) return ''
@@ -387,7 +410,13 @@ export function mapWireEvent(wire) {
       const message = data.message
       const text = textOfMessage(message)
       const reasoning = reasoningOfMessage(message)
-      if (text.length === 0 && reasoning.length === 0) return undefined
+      // A real Assistant turn emits one message per model response, holding the
+      // narration text and that response's tool calls as sibling blocks. Both
+      // halves must travel together: the Chat view renders a Step from its last
+      // `assistant/message`, so a text block split into a separate message is
+      // overwritten by the tool-call message that follows it.
+      const toolCalls = toolCallsOfMessage(message)
+      if (text.length === 0 && reasoning.length === 0 && toolCalls.length === 0) return undefined
       const record = {
         kind: 'assistant',
         seq,
@@ -397,6 +426,7 @@ export function mapWireEvent(wire) {
         text: truncate(text, MAX_TEXT),
       }
       if (reasoning.length > 0) record.reasoning = truncate(reasoning, MAX_REASONING)
+      if (toolCalls.length > 0) record.toolCalls = toolCalls
       return record
     }
     case 'tool/call': {
@@ -2631,6 +2661,30 @@ class LinkHost {
   }
 
   /**
+   * Tool calls this mirror log advertised but never started.
+   *
+   * One remote model response arrives as an `assistant` record that already
+   * carries its tool calls, followed by the `tool/call` records that open each
+   * lifecycle. The advertisement is written with the text so the Chat view keeps
+   * both; by the time the `tool/call` record arrives it must not advertise a
+   * second time. Reading the advertisement state back from the log — never from
+   * process memory — keeps that true across a restart.
+   */
+  mirrorPendingAdvertisements(session) {
+    const pending = new Set()
+    for (const event of session.snapshotEvents()) {
+      if (event.type === 'assistant/message') {
+        for (const block of Array.isArray(event.data?.message?.content) ? event.data.message.content : []) {
+          if (block?.type === 'tool-call' && typeof block.id === 'string') pending.add(block.id)
+        }
+      } else if (event.type === 'tool/call' && typeof event.data?.callId === 'string') {
+        pending.delete(event.data.callId)
+      }
+    }
+    return pending
+  }
+
+  /**
    * Tool calls this mirror log advertised and started but never resolved.
    *
    * Read back from the log, so a restarted Host still knows which remote result
@@ -2815,6 +2869,9 @@ class LinkHost {
     const pending = Array.isArray(entry.pendingUserTexts) ? entry.pendingUserTexts : []
     if (entry.toolCallSeqs === null || typeof entry.toolCallSeqs !== 'object') entry.toolCallSeqs = {}
     if (entry.openToolCalls === null || typeof entry.openToolCalls !== 'object') entry.openToolCalls = {}
+    // Calls whose advertisement is already in the log still await their
+    // `tool/call` record; that record must not advertise them again.
+    const pendingAdvertisements = this.mirrorPendingAdvertisements(session)
     // `command/done` only replays next to its own `command/run`, and a repeated
     // command id is rejected, so only ids this log already holds are mirrored.
     const mirroredCommands = new Set()
@@ -2905,26 +2962,49 @@ class LinkHost {
         const remoteStep = Number.isFinite(record.step) ? record.step : (cursor.remoteStep ?? 1)
         const coordinates = this.ensureMirrorStep(session, cursor, remoteTurn, remoteStep, entry)
         if (record.kind === 'assistant') {
+          // One remote model response becomes one local `assistant/message`, with
+          // its narration text and its tool calls as sibling blocks. Writing the
+          // text as its own message would hide it: the Chat view renders a Step
+          // from its last `assistant/message`, so the tool-call message that the
+          // separate `tool/call` record produces would replace the text.
           const content = []
           if (typeof record.reasoning === 'string' && record.reasoning.length > 0) content.push({ type: 'reasoning', text: record.reasoning })
           if (typeof record.text === 'string' && record.text.length > 0) content.push({ type: 'text', text: record.text })
-          if (content.length === 0) content.push({ type: 'text', text: '（远程助手没有返回可显示内容）' })
-          const committed = session.append('assistant/message', {
-            turn: coordinates.turn,
-            step: coordinates.step,
-            message: {
-              id: randomUUID(),
-              role: 'assistant',
-              content,
-              source: { kind: 'model', provider: 'dsh-link', model: 'remote' },
-            },
-            stream: [],
-          }, { surfaceOp: 'append' })
-          entry.lastCommittedAssistant = {
-            seq: Number.isFinite(committed?.seq) ? committed.seq : undefined,
-            turn: coordinates.turn,
-            step: coordinates.step,
+          const announced = []
+          for (const call of Array.isArray(record.toolCalls) ? record.toolCalls : []) {
+            if (call === null || typeof call !== 'object') continue
+            if (typeof call.callId !== 'string' || call.callId.length === 0) continue
+            if (entry.toolCallSeqs[call.callId] !== undefined) continue
+            content.push({ type: 'tool-call', id: call.callId, name: call.name || 'tool', arguments: call.args || '{}' })
+            announced.push(call)
           }
+          if (content.length > 0) {
+            const committed = session.append('assistant/message', {
+              turn: coordinates.turn,
+              step: coordinates.step,
+              message: {
+                id: randomUUID(),
+                role: 'assistant',
+                content,
+                source: { kind: 'model', provider: 'dsh-link', model: 'remote' },
+              },
+              stream: [],
+            }, { surfaceOp: 'append' })
+            // Only a message with visible content is a streaming target: a
+            // tool-call-only message would replace the draft with nothing.
+            if (typeof record.text === 'string' && record.text.length > 0
+              || typeof record.reasoning === 'string' && record.reasoning.length > 0) {
+              entry.lastCommittedAssistant = {
+                seq: Number.isFinite(committed?.seq) ? committed.seq : undefined,
+                turn: coordinates.turn,
+                step: coordinates.step,
+              }
+            }
+          }
+          // The message above already advertised these calls, so the matching
+          // `tool/call` records below only start their lifecycle and must not
+          // advertise a second time.
+          for (const call of announced) pendingAdvertisements.add(call.callId)
         } else if (record.kind === 'tool-call') {
           const callId = typeof record.callId === 'string' ? record.callId : ''
           // A Session log only accepts a tool/call that an assistant message has
@@ -2933,17 +3013,20 @@ class LinkHost {
           if (callId.length === 0) continue
           const toolName = record.name || 'tool'
           const toolArguments = record.args || '{}'
-          session.append('assistant/message', {
-            turn: coordinates.turn,
-            step: coordinates.step,
-            message: {
-              id: randomUUID(),
-              role: 'assistant',
-              content: [{ type: 'tool-call', id: callId, name: toolName, arguments: toolArguments }],
-              source: { kind: 'model', provider: 'dsh-link', model: 'remote' },
-            },
-            stream: [],
-          }, { surfaceOp: 'append' })
+          if (pendingAdvertisements.has(callId)) pendingAdvertisements.delete(callId)
+          else {
+            session.append('assistant/message', {
+              turn: coordinates.turn,
+              step: coordinates.step,
+              message: {
+                id: randomUUID(),
+                role: 'assistant',
+                content: [{ type: 'tool-call', id: callId, name: toolName, arguments: toolArguments }],
+                source: { kind: 'model', provider: 'dsh-link', model: 'remote' },
+              },
+              stream: [],
+            }, { surfaceOp: 'append' })
+          }
           const call = session.append('tool/call', {
             turn: coordinates.turn,
             step: coordinates.step,
