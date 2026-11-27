@@ -1505,12 +1505,14 @@ test('a changed mirror thinking level is pushed before the prompt is forwarded',
   await host.forwardMirrorPrompt('session-mirror', '继续', {
     provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high',
   })
-  assert.deepEqual(calls.map(([method]) => method), ['session.state', 'session.selectModel', 'session.prompt'])
-  assert.deepEqual(calls[1][1], {
+  assert.deepEqual(calls.map(([method]) => method), ['session.selectModel', 'session.prompt'])
+  assert.deepEqual(calls[0][1], {
     sessionId: 'session-remote',
     selection: { provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high' },
   })
-  assert.deepEqual(calls[2][1], { sessionId: 'session-remote', text: '继续', mode: 'queue' })
+  // Steering is the native "go in now": a queued prompt would wait for the
+  // whole previous turn, which is exactly what the user saw as "can't insert".
+  assert.deepEqual(calls[1][1], { sessionId: 'session-remote', text: '继续', mode: 'steer' })
   assert.deepEqual(host.mirrors.devices.dev_peer.sessions['session-remote'].pendingUserTexts, ['继续'])
 
   // A prompt that did not change the local selection does not repeat the push.
@@ -1518,8 +1520,23 @@ test('a changed mirror thinking level is pushed before the prompt is forwarded',
   await host.forwardMirrorPrompt('session-mirror', '再来', {
     provider: 'deepseek-account', model: 'deepseek-flash', reasoningEffort: 'high',
   })
-  assert.deepEqual(calls.map(([method]) => method), ['session.state', 'session.prompt'])
-  assert.equal(calls[1][1].mode, 'queue')
+  assert.deepEqual(calls.map(([method]) => method), ['session.prompt'])
+  assert.equal(calls[0][1].mode, 'steer')
+})
+
+test('a peer that refuses steering still receives the prompt', async () => {
+  const { host } = makeMirrorHost()
+  host.watchMirror = () => ({ watching: false })
+  host.mirrorModelStates.set('session-mirror', {})
+  const modes = []
+  host.remoteCall = async (_peerId, method, params) => {
+    if (method !== 'session.prompt') return {}
+    modes.push(params.mode)
+    if (params.mode === 'steer') throw new Error('peer only knows queue')
+    return {}
+  }
+  await host.forwardMirrorPrompt('session-mirror', '退化成排队', undefined)
+  assert.deepEqual(modes, ['steer', 'queue'])
 })
 
 test('remote settings gear keeps the local mirror model in step', async () => {

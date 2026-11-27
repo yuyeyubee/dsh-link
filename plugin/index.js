@@ -34,7 +34,7 @@ export const name = 'dsh-link'
 export const inject = ['tools', 'systemPrompt', 'credentials']
 
 /** Version reported to peers and the Web UI. */
-const VERSION = '1.3.14'
+const VERSION = '1.3.15'
 /** On-disk config document version. */
 const CONFIG_VERSION = 1
 /** Same-origin API route used by the Client half. */
@@ -3497,16 +3497,6 @@ class LinkHost {
     }
   }
 
-  /** Choose how a forwarded prompt enters the remote Agent. */
-  async mirrorPromptMode(deviceId, remoteSessionId) {
-    try {
-      const state = await this.remoteCall(deviceId, 'session.state', { sessionId: remoteSessionId }, 8_000)
-      return state?.running === true ? 'steer' : 'queue'
-    } catch {
-      return 'queue'
-    }
-  }
-
   /**
    * Encode locally stored images as prompt upload parts. Images travel as
    * encoded bytes because the peer's attachment store is a different store; the
@@ -3550,21 +3540,30 @@ class LinkHost {
     // and says so, so this does not add a second copy.
     if (options?.userMessageWritten !== true) this.appendMirrorUserText(found.entry, clean, images)
     this.watchMirror(localSessionId)
-    // A prompt typed while the remote Turn runs belongs to that Turn: steering
-    // it means the remote Agent sees it now instead of queuing it behind the
-    // turn, which is what the local transcript already shows.
-    const mode = await this.mirrorPromptMode(found.deviceId, found.remoteSessionId)
-    this.touchMirrorLive(localSessionId, mode === 'steer' ? { running: true } : { queueCount: (this.mirrorLiveOf(localSessionId).queueCount ?? 0) + 1 })
+    // Always steer. DSH's steering inserts at the running Agent's next step
+    // boundary — which is exactly "my message goes in now" — and an idle Agent
+    // starts a turn from it, so steering is correct in both states. Queueing
+    // was the old default whenever the remote looked idle at probe time, and a
+    // queued message waits for the whole previous turn, which reads as "I can't
+    // interrupt".
+    this.touchMirrorLive(localSessionId, { running: true })
     // The peer-state loop only runs every few seconds; apply a just-changed
     // thinking level (or model) before the turn starts so this prompt cannot
     // run with the previous remote selection.
     await this.pushMirrorPromptSelection(localSessionId, selection)
-    await this.remoteCall(found.deviceId, 'session.prompt', {
+    const payload = {
       sessionId: found.remoteSessionId,
       text: clean,
-      mode,
       ...(content.some((part) => part.type === 'image') ? { content } : {}),
-    }, 30_000)
+    }
+    try {
+      await this.remoteCall(found.deviceId, 'session.prompt', { ...payload, mode: 'steer' }, 30_000)
+    } catch (error) {
+      // A peer that only knows the older queueing mode must still receive the
+      // message; steering is a delivery preference, not part of the contract.
+      this.log('warn', `dsh-link: steer refused, queueing the prompt: ${errorMessage(error)}`)
+      await this.remoteCall(found.deviceId, 'session.prompt', { ...payload, mode: 'queue' }, 30_000)
+    }
   }
 
   /** Text of the newest user message in one mirror log. */
