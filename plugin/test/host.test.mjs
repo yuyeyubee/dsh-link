@@ -1658,6 +1658,43 @@ test('a prompt during a running remote turn is steered, not queued', async () =>
   assert.equal(host.mirrorStatusList()[0].running, true)
 })
 
+test('a prompt sent from the panel lands in the local mirror log', async () => {
+  const { host, services } = makeMirrorHost()
+  const session = makeFakeSession('session-mirror')
+  services.liveSessions.set('session-mirror', session)
+  host.watchMirror = () => ({ watching: false })
+  host.mirrorModelStates.set('session-mirror', {})
+  host.remoteCall = async (_peerId, method) => (method === 'session.state' ? { active: false, running: false } : {})
+  await host.forwardMirrorPrompt('session-mirror', '给远程发一句', undefined)
+  const user = session.events.find((event) => event.type === 'user/message')
+  assert.ok(user !== undefined, 'the local log must show the prompt the user typed')
+  assert.equal(user.data.content[0].text, '给远程发一句')
+  // Forwarding the same prompt twice (a retry) must not duplicate the bubble.
+  await host.forwardMirrorPrompt('session-mirror', '给远程发一句', undefined)
+  assert.equal(session.events.filter((event) => event.type === 'user/message').length, 1)
+})
+
+test('a remote user echo is appended when the local log never showed it', async () => {
+  const { host, services } = makeMirrorHost()
+  const session = makeFakeSession('session-mirror')
+  services.liveSessions.set('session-mirror', session)
+  const entry = host.mirrors.devices.dev_peer.sessions['session-remote']
+  // A prompt was queued but the local turn was rejected, so nothing was logged.
+  entry.pendingUserTexts = ['我自己的话']
+  entry.remoteSeq = -1
+  host.appendMirrorRecords(entry, [{ kind: 'user', seq: 1, time: 1, text: '我自己的话' }])
+  const user = session.events.find((event) => event.type === 'user/message')
+  assert.ok(user !== undefined, 'the echo must be written rather than silently dropped')
+  assert.equal(user.data.content[0].text, '我自己的话')
+  assert.deepEqual(entry.pendingUserTexts, [])
+
+  // Written twice, the echo is redundant and must be skipped.
+  session.append('user/message', { id: 'u2', role: 'user', content: [{ type: 'text', text: '再来一句' }], source: { kind: 'user' } })
+  entry.pendingUserTexts = ['再来一句']
+  host.appendMirrorRecords(entry, [{ kind: 'user', seq: 2, time: 2, text: '再来一句' }])
+  assert.equal(session.events.filter((event) => event.type === 'user/message').length, 2)
+})
+
 test('an open remote question is offered to peers and answered by the first one', async () => {
   const { host } = makeMirrorHost()
   host.relay = { state: 'connected' }

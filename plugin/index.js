@@ -34,7 +34,7 @@ export const name = 'dsh-link'
 export const inject = ['tools', 'systemPrompt', 'credentials']
 
 /** Version reported to peers and the Web UI. */
-const VERSION = '1.3.12'
+const VERSION = '1.3.13'
 /** On-disk config document version. */
 const CONFIG_VERSION = 1
 /** Same-origin API route used by the Client half. */
@@ -3111,8 +3111,14 @@ class LinkHost {
           const pendingIndex = pending.findIndex((item) => item === raw || (item.length === 0 && raw.length === 0))
           if (pendingIndex >= 0) {
             pending.splice(pendingIndex, 1)
-            appended.push(record)
-            continue
+            // A queued prompt is normally already in the log, so its echo only
+            // needs bookkeeping. If it is not there — a rejected pre-step, or a
+            // prompt sent from this plugin's own panel — append the echo so the
+            // user's own message still appears in their transcript.
+            if (raw.length === 0 || this.mirrorHasUserText(session, raw)) {
+              appended.push(record)
+              continue
+            }
           }
           if (cursor.turnOpen !== true) this.openMirrorTurn(session, cursor, cursor.remoteTurn, entry)
           session.append('user/message', {
@@ -3536,6 +3542,11 @@ class LinkHost {
     if (content.length === 0) return
     found.entry.pendingUserTexts = Array.isArray(found.entry.pendingUserTexts) ? found.entry.pendingUserTexts : []
     found.entry.pendingUserTexts.push(clean)
+    // The native composer's prompt is dropped by DSH when its pre-step is
+    // rejected, and this plugin's own panel never enters DSH's input path at
+    // all; either way the user's own message is missing unless it is written
+    // here, so the transcript shows "what I sent" before the remote replies.
+    this.appendMirrorUserText(found.entry, clean, images)
     this.watchMirror(localSessionId)
     // A prompt typed while the remote Turn runs belongs to that Turn: steering
     // it means the remote Agent sees it now instead of queuing it behind the
@@ -3554,6 +3565,21 @@ class LinkHost {
     }, 30_000)
   }
 
+  /** Whether one mirror log already shows this user text as a message. */
+  mirrorHasUserText(session, text) {
+    const wanted = typeof text === 'string' ? text.trim() : ''
+    if (wanted.length === 0 || session === undefined) return false
+    const events = session.snapshotEvents()
+    let seen = 0
+    for (let index = events.length - 1; index >= 0 && seen < 12; index -= 1) {
+      const event = events[index]
+      if (event.type !== 'user/message') continue
+      seen += 1
+      if (extractUserMessageText([event.data]) === wanted) return true
+    }
+    return false
+  }
+
   /** Append one durable local user message for a forwarded mirror prompt. */
   appendMirrorUserText(entry, text, images = []) {
     const session = this.service('sessions')?.get(entry.localId)
@@ -3564,6 +3590,10 @@ class LinkHost {
       content.push({ type: 'image', attachment: image })
     }
     if (session === undefined || content.length === 0) return
+    // DSH drops a prompt whose pre-step was rejected, and this Session's log is
+    // the only place the user can see it. Write it once: a repeated call for the
+    // same prompt must not add a second copy.
+    if (typeof text === 'string' && text.trim().length > 0 && this.mirrorHasUserText(session, text)) return
     const events = session.snapshotEvents()
     let turnOpen = false
     let turn = 0
@@ -3611,6 +3641,10 @@ class LinkHost {
     const cwd = session?.header?.cwd ?? session?.cwd ?? ''
     if (!this.isMirrorPath(cwd)) return undefined
     if (text.length > 0) {
+      // The local turn is rejected, so DSH will not keep this prompt in the log;
+      // write it now, while the turn is still open, so the user sees what they
+      // sent as soon as the Session is bound to a remote one.
+      this.appendMirrorUserText({ localId: localSessionId }, text, images)
       void this.provisionUnmappedMirror(localSessionId, cwd, text, payload.turn).catch((error) => {
         this.log('warn', `dsh-link: mirror bind failed: ${errorMessage(error)}`)
       })
@@ -3620,6 +3654,20 @@ class LinkHost {
 
   /** Bind a local Session created inside a mirror Workspace to a new remote Session. */
   async provisionUnmappedMirror(localSessionId, cwd, text, turn) {
+    // Two prompts in flight would otherwise create two remote Sessions and bind
+    // both to this one local log, leaving `mirrorForLocal` order-dependent.
+    this.provisioning = this.provisioning ?? new Set()
+    if (this.provisioning.has(localSessionId)) return undefined
+    this.provisioning.add(localSessionId)
+    try {
+      return await this.provisionUnmappedMirrorOnce(localSessionId, cwd, text, turn)
+    } finally {
+      this.provisioning.delete(localSessionId)
+    }
+  }
+
+  /** Bind one local Session to a fresh remote Session (single-flight). */
+  async provisionUnmappedMirrorOnce(localSessionId, cwd, text, turn) {
     const root = join(dataDir(), 'mirrors')
     if (!cwd.startsWith(`${root}${sep}`)) throw new LinkError('not-found', '不是远程工作区会话')
     const parts = cwd.slice(root.length + 1).split(sep)
@@ -3891,6 +3939,11 @@ class LinkHost {
         await this.syncMirrorHistory(peer, entry, remoteSessionId)
       }
     }
+    // Two remote Sessions pointing at one local log make `mirrorForLocal`
+    // order-dependent: a prompt could be forwarded to whichever was bound
+    // first. Bindings made while the peer was slow used to leak that way, so
+    // reconcile them on every sync instead of only at startup.
+    if (this.pruneAliasedMappings(device) > 0) this.saveMirrorStore()
   }
 
   /**
