@@ -34,7 +34,7 @@ export const name = 'dsh-link'
 export const inject = ['tools', 'systemPrompt', 'credentials']
 
 /** Version reported to peers and the Web UI. */
-const VERSION = '1.3.11'
+const VERSION = '1.3.12'
 /** On-disk config document version. */
 const CONFIG_VERSION = 1
 /** Same-origin API route used by the Client half. */
@@ -1635,15 +1635,59 @@ class LinkHost {
    */
   openNativeQuestionCall(session) {
     const open = []
+    const settled = new Set()
     for (const event of session.snapshotEvents()) {
-      if (event.type === 'tool/call' && event.data?.name === 'ask_user_question') open.push(event.data.callId)
-      else if (event.type === 'tool/result') {
-        const callId = event.data?.message?.toolCallId
-        const index = typeof callId === 'string' ? open.lastIndexOf(callId) : -1
-        if (index >= 0) open.splice(index, 1)
+      if (event.type === 'tool/call' && event.data?.name === 'ask_user_question') {
+        open.push(event.data.callId)
+        continue
+      }
+      if (event.type !== 'tool/result') continue
+      const callId = event.data?.message?.toolCallId
+      if (typeof callId !== 'string') continue
+      // A result that reports `pending` does not close the question: the Agent
+      // stopped waiting, but the human can still answer it through the answer
+      // RPC. Only a real answer or a failure settles the call.
+      const text = Array.isArray(event.data.message.content)
+        ? event.data.message.content.find((block) => block?.type === 'text')?.text
+        : undefined
+      let pending = false
+      try {
+        const parsed = typeof text === 'string' ? JSON.parse(text) : undefined
+        pending = parsed !== null && typeof parsed === 'object' && parsed.pending === true
+      } catch {
+        pending = false
+      }
+      if (pending) continue
+      settled.add(callId)
+      const index = open.lastIndexOf(callId)
+      if (index >= 0) open.splice(index, 1)
+    }
+    return open.filter((callId) => !settled.has(callId)).at(-1)
+  }
+
+  /**
+   * How one ask_user_question call stands, read from the log.
+   *
+   * `open` means its waterfall is still live, so the answer must come from the
+   * card (or `userQuestions.answer` refuses it); `continued` means the tool
+   * already returned the pending payload and the question can be answered again
+   * later — the only state DSH's answer API accepts.
+   */
+  nativeQuestionStateOf(session, callId) {
+    for (const event of session.snapshotEvents()) {
+      if (event.type !== 'tool/result') continue
+      if (event.data?.message?.toolCallId !== callId) continue
+      const text = Array.isArray(event.data.message.content)
+        ? event.data.message.content.find((block) => block?.type === 'text')?.text
+        : undefined
+      try {
+        const parsed = typeof text === 'string' ? JSON.parse(text) : undefined
+        return parsed !== null && typeof parsed === 'object' && parsed.pending === true ? 'continued' : 'settled'
+      } catch {
+        return 'settled'
       }
     }
-    return open.at(-1)
+    return 'open'
   }
 
   /** Read the pending native question of one local Session, if it holds one. */
@@ -1659,6 +1703,7 @@ class LinkHost {
     return {
       pending: true,
       callId,
+      questionState: this.nativeQuestionStateOf(attached, callId),
       pendingInput: Array.isArray(state?.pendingInput) ? state.pendingInput : [],
       running: state?.running === true,
     }
@@ -1691,11 +1736,25 @@ class LinkHost {
     if (agent === undefined) return { ok: false, reason: 'no-agent' }
     const callId = this.openNativeQuestionCall(agent.session)
     if (callId === undefined) return { ok: false, reason: 'no-open-question' }
+    // Only a continued question has an answer RPC: an open one is owned by the
+    // live waterfall, and DSH rejects it with `false`. Say so instead of
+    // reporting a bare failure the caller cannot act on.
+    const questionState = this.nativeQuestionStateOf(agent.session, callId)
+    if (questionState !== 'continued') {
+      return {
+        ok: false,
+        callId,
+        questionState,
+        reason: questionState === 'open'
+          ? 'open-question-answered-on-card'
+          : 'question-already-settled',
+      }
+    }
     try {
       const accepted = userQuestions.answer(agent, callId, { answers: normalized })
-      return { ok: accepted === true, callId }
+      return { ok: accepted === true, callId, questionState }
     } catch (error) {
-      return { ok: false, reason: errorMessage(error) }
+      return { ok: false, callId, questionState, reason: errorMessage(error) }
     }
   }
 

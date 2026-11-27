@@ -1768,9 +1768,29 @@ test('a pending native question is found from the log and answerable without the
   const pending = await host.nativeQuestionState('session-mirror')
   assert.equal(pending.pending, true)
   assert.equal(pending.callId, 'call-ask')
+  assert.equal(pending.questionState, 'open')
 
+  // A live question belongs to its waterfall: DSH refuses the answer RPC, so the
+  // reader must say "answer it on the card" rather than report a bare failure.
+  const refused = await host.answerNativeQuestion('session-mirror', [{ id: 'q1', selected: ['A'] }])
+  assert.equal(refused.ok, false)
+  assert.equal(refused.reason, 'open-question-answered-on-card')
+  assert.deepEqual(asked, [])
+
+  // Once the call has returned the pending payload it is continued, and the
+  // answer RPC is exactly what reopens it.
+  session.append('tool/result', {
+    turn: 1,
+    step: 1,
+    message: {
+      role: 'tool',
+      toolCallId: 'call-ask',
+      source: { kind: 'tool', callId: 'call-ask' },
+      content: [{ type: 'text', text: '{"pending":true,"callId":"call-ask"}' }],
+    },
+  })
   const result = await host.answerNativeQuestion('session-mirror', [{ id: 'q1', selected: ['A'], custom: '好吧' }])
-  assert.deepEqual(result, { ok: true, callId: 'call-ask' })
+  assert.deepEqual(result, { ok: true, callId: 'call-ask', questionState: 'continued' })
   assert.deepEqual(asked, [['session-mirror', 'call-ask', [{ id: 'q1', selected: ['A'], custom: '好吧' }]]])
 })
 

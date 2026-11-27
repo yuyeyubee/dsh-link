@@ -3097,7 +3097,7 @@ window.__ModuleLoader__.load({
             )
           }),
           state.phase === 'ready' ? h('div', { className: 'dsh-link-question-actions' },
-            h('button', { type: 'button', className: 'dsh-link-primary', disabled: submitting, onClick: submit },
+            h('button', { type: 'button', className: 'dsh-link-btn is-primary', disabled: submitting, onClick: submit },
               submitting ? t('question.submitting') : t('question.submit')),
           ) : null,
         ),
