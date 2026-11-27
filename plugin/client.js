@@ -536,13 +536,6 @@ window.__ModuleLoader__.load({
       .dsh-link-header-meta { display: flex; align-items: center; gap: 8px; flex: none; }
       .dsh-link-header-actions { display: flex; align-items: center; gap: 4px; flex: none; }
       .dsh-link-pill { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border-radius: 999px; border: .5px solid var(--dsw-alias-border-l3); background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-secondary); font-size: 12px; white-space: nowrap; }
-      .dsh-link-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--dsw-alias-label-tertiary); flex: none; }
-      .dsh-link-dot.is-ok { background: var(--dsw-alias-state-success-primary); }
-      .dsh-link-dot.is-warn { background: var(--dsw-alias-state-warn-primary); }
-      .dsh-link-dot.is-error { background: var(--dsw-alias-state-error-primary); }
-      .dsh-link-dot.is-idle { background: var(--dsw-alias-label-tertiary); }
-      .dsh-link-dot.is-pulse { animation: dsh-link-pulse 1.4s ease-in-out infinite; }
-      @keyframes dsh-link-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.78); } }
       .dsh-link-btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; box-sizing: border-box; height: 30px; padding: 0 12px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
       .dsh-link-btn:not(:disabled):hover { background: var(--dsw-alias-interactive-bg-hover); }
       .dsh-link-btn:focus-visible { outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 1px; }
@@ -595,7 +588,6 @@ window.__ModuleLoader__.load({
       .dsh-link-session-title { font-size: 12.5px; line-height: 1.4; color: var(--dsw-alias-label-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .dsh-link-session.is-selected .dsh-link-session-title { font-weight: 600; }
       .dsh-link-session-meta { display: flex; align-items: center; gap: 5px; font-size: 11px; line-height: 1.4; color: var(--dsw-alias-label-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .dsh-link-session-meta .dsh-link-dot { width: 6px; height: 6px; }
       .dsh-link-list-note { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 10px; border: .5px dashed var(--dsw-alias-border-l3); border-radius: 10px; font-size: 12px; line-height: 1.6; color: var(--dsw-alias-label-secondary); }
       .dsh-link-empty { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 36px 24px; text-align: center; color: var(--dsw-alias-label-tertiary); }
       .dsh-link-empty-icon { display: inline-flex; color: var(--dsw-alias-label-tertiary); opacity: .9; margin-bottom: 4px; }
@@ -650,7 +642,7 @@ window.__ModuleLoader__.load({
       .dsh-link-turn::before, .dsh-link-turn::after { content: ""; flex: 1; border-top: .5px dashed var(--dsw-alias-border-l3); }
       .dsh-link-turn-label { flex: none; white-space: nowrap; }
       .dsh-link-composer { flex: none; padding: 10px 16px 14px; border-top: .5px solid var(--dsw-alias-border-l3); background: var(--dsw-alias-bg-base); }
-      .dsh-link-composer-box { display: flex; flex-direction: column; gap: 4px; padding: 7px 8px 7px 11px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 13px; background: var(--dsw-alias-bg-layer-1); }
+      .dsh-link-composer-box { display: flex; flex-direction: column; gap: 4px; padding: 7px 8px 7px 11px; border: .5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-xl); background: var(--dsw-specific-input-major); }
       .dsh-link-composer-box:focus-within { border-color: var(--dsw-alias-state-business-primary); }
       .dsh-link-composer-input { display: block; width: 100%; min-height: 50px; max-height: 160px; padding: 3px 2px; border: 0; outline: 0; resize: none; field-sizing: content; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 13.5px; line-height: 1.6; }
       .dsh-link-composer-input::placeholder { color: var(--dsw-alias-label-tertiary); }
@@ -658,7 +650,7 @@ window.__ModuleLoader__.load({
       .dsh-link-composer-state { flex: 1; min-width: 0; font-size: 11px; line-height: 1.4; color: var(--dsw-alias-label-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .dsh-link-composer-buttons { display: flex; align-items: center; gap: 6px; flex: none; }
       .dsh-link-overlay { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--dsw-alias-bg-mask-1); }
-      .dsh-link-sheet { display: flex; flex-direction: column; width: min(520px, 100%); max-height: min(760px, calc(100dvh - 40px)); border: .5px solid var(--dsw-alias-border-l2); border-radius: 16px; background: var(--dsw-alias-bg-base); box-shadow: var(--dsw-elevation-prominent); overflow: hidden; }
+      .dsh-link-sheet { display: flex; flex-direction: column; width: min(520px, 100%); max-height: min(760px, calc(100dvh - 40px)); border: .5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-xl); background: var(--dsw-alias-bg-base); box-shadow: var(--dsw-elevation-prominent); overflow: hidden; }
       .dsh-link-sheet.is-wide { width: min(600px, 100%); }
       .dsh-link-sheet:focus { outline: none; }
       .dsh-link-sheet-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px 10px; border-bottom: .5px solid var(--dsw-alias-border-l3); }
@@ -900,7 +892,7 @@ window.__ModuleLoader__.load({
       .dsh-link-browser-session-badges { display: flex; align-items: center; gap: 4px; flex: none; }
       .dsh-link-browser-session-actions { flex: none; display: flex; align-items: center; gap: 1px; opacity: 0; transition: opacity .12s; }
       .dsh-link-browser-session:hover .dsh-link-browser-session-actions, .dsh-link-browser-session:focus-within .dsh-link-browser-session-actions, .dsh-link-browser-session-actions.is-open { opacity: 1; }
-      .dsh-link-browser-menu { position: absolute; top: calc(100% - 2px); right: 8px; z-index: 60; display: flex; flex-direction: column; min-width: 190px; padding: 4px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-2); box-shadow: var(--dsw-elevation-prominent); }
+      .dsh-link-browser-menu { position: absolute; top: calc(100% - 2px); right: 8px; z-index: 60; display: flex; flex-direction: column; min-width: 190px; padding: 4px; border: .5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-lg); background: var(--dsw-specific-menu); box-shadow: var(--dsw-elevation-prominent); }
       .dsh-link-browser-menu.is-project { top: 32px; right: 34px; }
       .dsh-link-browser-menu-item { display: flex; align-items: center; gap: 7px; width: 100%; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 12.5px; text-align: left; white-space: nowrap; cursor: pointer; }
       .dsh-link-browser-menu-item:hover { background: var(--dsw-alias-interactive-bg-hover); }
@@ -911,7 +903,7 @@ window.__ModuleLoader__.load({
       .dsh-link-browser-empty-title { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.4; color: var(--dsw-alias-label-primary); }
       .dsh-link-browser-empty-hint { margin: 0; max-width: 440px; font-size: 12.5px; line-height: 1.65; color: var(--dsw-alias-label-secondary); }
       .dsh-link-browser-empty-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
-      .dsh-link-toast { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 1300; max-width: min(520px, calc(100% - 32px)); padding: 9px 14px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); box-shadow: var(--dsw-elevation-prominent); font-size: 12.5px; line-height: 1.5; }
+      .dsh-link-toast { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 1300; max-width: min(520px, calc(100% - 32px)); padding: 9px 14px; border: .5px solid var(--dsw-alias-border-l2); border-radius: var(--dsw-radius-lg); background: var(--dsw-specific-menu); color: var(--dsw-alias-label-primary); box-shadow: var(--dsw-elevation-prominent); font-size: 12.5px; line-height: 1.5; }
       .dsh-link-toast.is-error { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
       .dsh-link-toast.is-ok { border-color: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-state-success-primary); }
       .dsh-link-remote-panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -1540,12 +1532,18 @@ window.__ModuleLoader__.load({
       return 'connection.unconfigured'
     }
 
-    /** Tone class for a relay connection state. */
-    function connectionTone(state) {
-      if (state === 'connected') return 'is-ok'
-      if (state === 'connecting') return 'is-warn'
-      if (state === 'offline') return 'is-error'
-      return 'is-idle'
+    /**
+     * Shipped `StateDot` state for a relay connection.
+     *
+     * The plugin's status markers are the same marker DSH puts on its own rows,
+     * so a connection reads with the vocabulary the rest of the product uses:
+     * settled, in progress (the orbiting arc), or down.
+     */
+    function connectionDotState(state) {
+      if (state === 'connected') return 'done'
+      if (state === 'connecting') return 'ongoing'
+      if (state === 'offline') return 'error'
+      return 'idle'
     }
 
     /** Human reason for a turn end, with the protocol string as fallback. */
@@ -1596,11 +1594,12 @@ window.__ModuleLoader__.load({
     }
 
     /** Stream phase tone class. */
-    function streamTone(phase) {
-      if (phase === 'connected') return 'is-ok'
-      if (phase === 'retrying' || phase === 'reconnecting' || phase === 'connecting') return 'is-warn'
-      if (phase === 'error' || phase === 'failed' || phase === 'ended') return 'is-error'
-      return 'is-idle'
+    /** Shipped `StateDot` state for one transcript stream phase. */
+    function streamDotState(phase) {
+      if (phase === 'connected') return 'done'
+      if (phase === 'retrying' || phase === 'reconnecting' || phase === 'connecting') return 'ongoing'
+      if (phase === 'error' || phase === 'failed' || phase === 'ended') return 'error'
+      return 'idle'
     }
 
     /* --------------------------------------------------------------------- */
@@ -2375,8 +2374,8 @@ window.__ModuleLoader__.load({
               h('span', null, platformLabel(t, device.platform)),
             ),
             h('div', { className: 'dsh-link-conv-actions' },
-              h('span', { className: cls('dsh-link-stream', streamTone(stream.phase)) },
-                h('span', { className: cls('dsh-link-dot', streamTone(stream.phase), stream.phase === 'connected' ? '' : 'is-pulse') }),
+              h('span', { className: cls('dsh-link-stream', stream.phase === 'connected' ? 'is-ok' : '') },
+                h(StateDot, { state: streamDotState(stream.phase), size: 8 }),
                 streamLabel(t, stream.phase),
               ),
               canRetry
@@ -3324,7 +3323,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'dsh-link-row', key: 'connection' },
           h('span', { className: 'dsh-link-row-key' }, t('settings.connection')),
           h('span', { className: 'dsh-link-row-value' },
-            h('span', { className: cls('dsh-link-dot', connectionTone(connection.state)) }),
+            h(StateDot, { state: connectionDotState(connection.state), size: 8 }),
             ' ',
             t(connectionKey(connection.state)),
           ),
@@ -3436,7 +3435,7 @@ window.__ModuleLoader__.load({
                 ? h('p', { className: 'dsh-link-hint' }, t('settings.noPeers'))
                 : h('ul', { className: 'dsh-link-peers' },
                     ...peers.map((peer) => h('li', { className: 'dsh-link-peer', key: String(peer.id) },
-                      h('span', { className: 'dsh-link-dot is-ok' }),
+                      h(StateDot, { state: 'done', size: 8 }),
                       h('span', { className: 'dsh-link-peer-name' }, typeof peer.name === 'string' && peer.name !== '' ? peer.name : String(peer.id)),
                       h('span', { className: 'dsh-link-badge is-remote' }, platformLabel(t, peer.platform)),
                     )),
@@ -4389,7 +4388,7 @@ window.__ModuleLoader__.load({
               )),
             ),
             h('div', { className: 'dsh-link-tabbar-actions' },
-              h('span', { className: cls('dsh-link-dot', connectionTone(connectionState)), title: t(connectionKey(connectionState)) }),
+              h('span', { title: t(connectionKey(connectionState)) }, h(StateDot, { state: connectionDotState(connectionState), size: 8 })),
               h('button', { type: 'button', className: 'dsh-link-btn is-ghost is-icon', 'aria-label': t('settings'), title: t('settings'), onClick: () => setDialog({ kind: 'settings' }) }, h(SettingsGlyph)),
             ),
           ),
