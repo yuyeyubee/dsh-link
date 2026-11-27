@@ -3,7 +3,7 @@
 > 用一台你自己的公网 relay，把多台电脑上的 **DeepSeek Harness（DSH）** 和 **Android 手机** 连成一个只属于你的私有空间：在这台电脑上直接看到、打开、操作另一台电脑的 DSH 会话；本机 AI 也能用工具驱动远程 DSH；手机可以连接多台电脑，并用语音输入把话发到指定电脑、由那台电脑本地识别后把文字传回手机。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Plugin](https://img.shields.io/badge/plugin-1.3.13-brightgreen)
+![Plugin](https://img.shields.io/badge/plugin-1.3.14-brightgreen)
 ![Protocol](https://img.shields.io/badge/protocol-v1-blue)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84)
 
@@ -330,6 +330,7 @@ node tools/probe-client.mjs --pairing-file ~/.dsh/dsh-link/pairing-code.txt --me
 
 | 组件 | 版本 | 说明 |
 | --- | --- | --- |
+| DSH Link 插件 | 1.3.14 | 修复多轮对话里后续几轮看不到自己的消息：去重只看当前打开的回合（同一句话在不同回合是两条消息），跨设备面板的发送也改走镜像写入路径，不再直接调用远程而漏掉本地记录。|
 | DSH Link 插件 | 1.3.13 | 修复发给远程的消息在本机看不到：DSH 会丢弃被拦截回合的用户消息，插件现在把这条消息写进本地镜像日志（原生输入框与跨设备面板两条路径都覆盖），远程回显只在本地确实已有该消息时才跳过；并发发送只绑定一个远程会话，镜像归属不再出现两个远程会话指向同一份本地日志。|
 | DSH Link 插件 | 1.3.12 | 提问状态判定细化：日志里带 `pending` 的结果不再被当成已结束，`native-question` 会区分 `open`（只能在这张卡片上作答）与 `continued`（可再次回答），`answer-question` 对 `open` 状态给出明确原因而不是含糊失败；兜底提问卡片的「提交」按钮改用原生按钮样式（此前漏了样式类，会退化成浏览器默认外观）。|
 | DSH Link 插件 | 1.3.11 | `link_debug` 新增 `native-question` 与 `answer-question`：查看某个镜像会话是否还挂着一张原生提问卡片，并对「已超时但仍可回答」的提问直接提交答案；提问的 callId 从会话日志回读，重启后依然有效。|

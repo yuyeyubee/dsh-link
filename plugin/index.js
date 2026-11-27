@@ -34,7 +34,7 @@ export const name = 'dsh-link'
 export const inject = ['tools', 'systemPrompt', 'credentials']
 
 /** Version reported to peers and the Web UI. */
-const VERSION = '1.3.13'
+const VERSION = '1.3.14'
 /** On-disk config document version. */
 const CONFIG_VERSION = 1
 /** Same-origin API route used by the Client half. */
@@ -3115,7 +3115,7 @@ class LinkHost {
             // needs bookkeeping. If it is not there — a rejected pre-step, or a
             // prompt sent from this plugin's own panel — append the echo so the
             // user's own message still appears in their transcript.
-            if (raw.length === 0 || this.mirrorHasUserText(session, raw)) {
+            if (raw.length === 0 || this.mirrorLastUserText(session) === raw.trim()) {
               appended.push(record)
               continue
             }
@@ -3534,7 +3534,7 @@ class LinkHost {
   }
 
   /** Forward a native mirror prompt to the remote Host. */
-  async forwardMirrorPrompt(localSessionId, text, selection, images = []) {
+  async forwardMirrorPrompt(localSessionId, text, selection, images = [], options = {}) {
     const found = this.mirrorForLocal(localSessionId)
     if (found === undefined) throw new LinkError('not-found', '这不是远程镜像会话')
     const clean = typeof text === 'string' ? text.trim() : ''
@@ -3546,7 +3546,9 @@ class LinkHost {
     // rejected, and this plugin's own panel never enters DSH's input path at
     // all; either way the user's own message is missing unless it is written
     // here, so the transcript shows "what I sent" before the remote replies.
-    this.appendMirrorUserText(found.entry, clean, images)
+    // The pre-step path writes it synchronously (while its Turn is still open)
+    // and says so, so this does not add a second copy.
+    if (options?.userMessageWritten !== true) this.appendMirrorUserText(found.entry, clean, images)
     this.watchMirror(localSessionId)
     // A prompt typed while the remote Turn runs belongs to that Turn: steering
     // it means the remote Agent sees it now instead of queuing it behind the
@@ -3565,16 +3567,40 @@ class LinkHost {
     }, 30_000)
   }
 
-  /** Whether one mirror log already shows this user text as a message. */
-  mirrorHasUserText(session, text) {
+  /** Text of the newest user message in one mirror log. */
+  mirrorLastUserText(session) {
+    if (session === undefined) return ''
+    const events = session.snapshotEvents()
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      if (events[index].type === 'user/message') return extractUserMessageText([events[index].data])
+    }
+    return ''
+  }
+
+  /**
+   * Whether the Turn this log still has open already carries this user text.
+   *
+   * Only the open Turn counts: the same sentence typed twice is two messages,
+   * and a scan across the whole log would mistake the second one for a repeat
+   * and drop it — which is exactly what made later rounds appear empty.
+   */
+  mirrorOpenTurnHasUserText(session, text) {
     const wanted = typeof text === 'string' ? text.trim() : ''
     if (wanted.length === 0 || session === undefined) return false
     const events = session.snapshotEvents()
-    let seen = 0
-    for (let index = events.length - 1; index >= 0 && seen < 12; index -= 1) {
+    let startIndex = -1
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const type = events[index].type
+      if (type === 'turn/end') return false
+      if (type === 'turn/start') {
+        startIndex = index
+        break
+      }
+    }
+    if (startIndex < 0) return false
+    for (let index = events.length - 1; index > startIndex; index -= 1) {
       const event = events[index]
       if (event.type !== 'user/message') continue
-      seen += 1
       if (extractUserMessageText([event.data]) === wanted) return true
     }
     return false
@@ -3591,9 +3617,10 @@ class LinkHost {
     }
     if (session === undefined || content.length === 0) return
     // DSH drops a prompt whose pre-step was rejected, and this Session's log is
-    // the only place the user can see it. Write it once: a repeated call for the
-    // same prompt must not add a second copy.
-    if (typeof text === 'string' && text.trim().length > 0 && this.mirrorHasUserText(session, text)) return
+    // the only place the user can see it. Write it once per Turn: a retry of the
+    // same step must not add a second copy, but the same sentence in a later
+    // Turn is a new message and has to be kept.
+    if (typeof text === 'string' && text.trim().length > 0 && this.mirrorOpenTurnHasUserText(session, text)) return
     const events = session.snapshotEvents()
     let turnOpen = false
     let turn = 0
@@ -3628,7 +3655,7 @@ class LinkHost {
         if (found.entry.lastForwardedTurn !== payload.turn) {
           found.entry.lastForwardedTurn = payload.turn
           this.appendMirrorUserText(found.entry, text, images)
-          void this.forwardMirrorPrompt(localSessionId, text, payload.modelSelection, images).catch((error) => {
+          void this.forwardMirrorPrompt(localSessionId, text, payload.modelSelection, images, { userMessageWritten: true }).catch((error) => {
             this.log('warn', `dsh-link: mirror forward failed: ${errorMessage(error)}`)
           })
         }
@@ -5310,9 +5337,19 @@ async function handleApiRoute(request, host) {
       }
       case 'send': {
         const peer = requireDevice(host, body.deviceId)
+        const text = typeof body.text === 'string' ? body.text : ''
+        // A prompt for a mirrored Session must go through the mirror path: it
+        // records the user's own message locally and keeps the watch running.
+        // Sending straight to the peer left the transcript with only the remote
+        // replies, which is why the panel showed no "my message" bubble.
+        const mirror = host.mirrorForRemote(peer.id, body.sessionId)
+        if (mirror !== undefined && host.service('sessions')?.get(mirror.entry.localId) !== undefined) {
+          await host.forwardMirrorPrompt(mirror.entry.localId, text, undefined, [])
+          return jsonResponse(200, { ok: true, accepted: true })
+        }
         const result = await host.remoteCall(peer.id, 'session.prompt', {
           sessionId: body.sessionId,
-          text: body.text,
+          text,
           mode: body.mode === 'steer' ? 'steer' : 'queue',
         })
         return jsonResponse(200, { ok: true, ...result })

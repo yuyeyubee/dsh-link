@@ -3,7 +3,7 @@
 > One private relay of your own connects **DeepSeek Harness (DSH)** installations on several computers and an **Android phone** into a private space that belongs only to you: browse and drive another computer's DSH Sessions from this one, let the local agent steer a remote DSH with tools, and use voice input on the phone while recognition stays on the target computer.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Plugin](https://img.shields.io/badge/plugin-1.3.13-brightgreen)
+![Plugin](https://img.shields.io/badge/plugin-1.3.14-brightgreen)
 ![Protocol](https://img.shields.io/badge/protocol-v1-blue)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84)
 
@@ -325,6 +325,7 @@ Deeper design notes live in [docs/architecture.md](docs/architecture.md); instal
 
 | Component | Version | Notes |
 | --- | --- | --- |
+| DSH Link plugin | 1.3.14 | Fixes later rounds in a multi-turn conversation losing your own message: de-duplication now looks only at the open Turn (the same sentence in a later Turn is a new message), and sends from the plugin panel go through the mirror writer instead of calling the peer directly and skipping the local record. |
 | DSH Link plugin | 1.3.13 | Fixes your own prompt being invisible locally: DSH drops the user message of a turn whose pre-step the plugin rejects, so the prompt is now written into the local mirror log (both from the native composer and from the plugin panel), and a remote echo is skipped only when the local log really holds it; concurrent sends bind a single remote Session, and no two remote Sessions share one local log any more. |
 | DSH Link plugin | 1.3.12 | Sharper question-state reading: a logged result carrying `pending` no longer counts as settled, `native-question` distinguishes `open` (answerable only on its card) from `continued` (answerable again), and `answer-question` explains why an `open` question is refused instead of failing vaguely; the fallback question card's submit button now uses the shipped button style (it carried no style class and fell back to the browser default). |
 | DSH Link plugin | 1.3.11 | `link_debug` gains `native-question` and `answer-question`: read whether a mirror Session still holds a native question card, and answer a question that timed out but is still answerable; both read the call id back from the Session log, so they survive a restart. |

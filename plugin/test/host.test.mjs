@@ -1674,6 +1674,23 @@ test('a prompt sent from the panel lands in the local mirror log', async () => {
   assert.equal(session.events.filter((event) => event.type === 'user/message').length, 1)
 })
 
+test('the same words in a later turn are still a new visible message', async () => {
+  const { host, services } = makeMirrorHost()
+  const session = makeFakeSession('session-mirror')
+  services.liveSessions.set('session-mirror', session)
+  host.watchMirror = () => ({ watching: false })
+  host.mirrorModelStates.set('session-mirror', {})
+  host.remoteCall = async (_peerId, method) => (method === 'session.state' ? { active: false, running: false } : {})
+  await host.forwardMirrorPrompt('session-mirror', '再来一次', undefined)
+  // The remote Turn that answered it closed the local Turn.
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  // The user says exactly the same thing again in the next round.
+  await host.forwardMirrorPrompt('session-mirror', '再来一次', undefined)
+  const users = session.events.filter((event) => event.type === 'user/message')
+  assert.equal(users.length, 2, 'each round must keep its own message, even with identical words')
+  assert.deepEqual(users.map((event) => event.data.content[0].text), ['再来一次', '再来一次'])
+})
+
 test('a remote user echo is appended when the local log never showed it', async () => {
   const { host, services } = makeMirrorHost()
   const session = makeFakeSession('session-mirror')
@@ -1994,6 +2011,25 @@ test('an incoming peer question becomes locally answerable and replies once', as
   assert.deepEqual(reply.result.answers, [{ id: 'q1', selected: ['A'], custom: '继续' }])
   assert.equal(host.mirrorStatusList()[0].questionId, '')
   assert.equal(host.mirrorQuestion('session-mirror'), undefined)
+})
+
+test('HTTP send for a mirrored Session records the user message locally', async () => {
+  const { host, services } = makeMirrorHost()
+  const session = makeFakeSession('session-mirror')
+  services.liveSessions.set('session-mirror', session)
+  host.watchMirror = () => ({ watching: false })
+  host.mirrorModelStates.set('session-mirror', {})
+  host.remoteCall = async (_peerId, method) => (method === 'session.state' ? { active: false, running: false } : {})
+  const response = await handleApiRoute(new Request('http://localhost/api/dsh-link', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ op: 'send', deviceId: 'dev_peer', sessionId: 'session-remote', text: '面板发的一句' }),
+  }), host)
+  const body = await response.json()
+  assert.equal(body.ok, true)
+  const user = session.events.find((event) => event.type === 'user/message')
+  assert.ok(user !== undefined, 'a panel prompt must appear in the transcript too')
+  assert.equal(user.data.content[0].text, '面板发的一句')
 })
 
 test('HTTP mirrorStatus and answerQuestion expose the live question', async () => {
