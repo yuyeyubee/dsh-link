@@ -3,7 +3,7 @@
 > One private relay of your own connects **DeepSeek Harness (DSH)** installations on several computers and an **Android phone** into a private space that belongs only to you: browse and drive another computer's DSH Sessions from this one, let the local agent steer a remote DSH with tools, and use voice input on the phone while recognition stays on the target computer.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Plugin](https://img.shields.io/badge/plugin-1.3.8-brightgreen)
+![Plugin](https://img.shields.io/badge/plugin-1.3.9-brightgreen)
 ![Protocol](https://img.shields.io/badge/protocol-v1-blue)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84)
 
@@ -325,6 +325,7 @@ Deeper design notes live in [docs/architecture.md](docs/architecture.md); instal
 
 | Component | Version | Notes |
 | --- | --- | --- |
+| DSH Link plugin | 1.3.9 | Matches DSH's own chrome: the sidebar running marker is the shipped StateDot (same orbiting arc and timing), the custom `?` and queued-count badges are gone in favour of the native status precedence, the header device pill uses the shipped Tag geometry and colours, and the plugin stylesheet keeps no hardcoded colour fallbacks. Blocking questions no longer expire after ten minutes (relay and Host both hold them for six hours, reaped on either disconnect), and startup folds "kept unmapped mirror Sessions" into one line. |
 | DSH Link plugin | 1.3.8 | Remote questions now use DSH's own question card: a peer's question is raised on the local mirror Session through the native `userQuestions.ask`, so options, custom answers and the pending-interaction indicator all match DSH, and the plugin's own dialog is gone. The asking Host no longer stacks a second local card while the mirror Host shows one, which used to leave an unsettleable card behind after the answer, and the relay keeps `session.question` open for 660s so a waiting call is not reaped mid-question. |
 | DSH Link plugin | 1.3.7 | Fixes remote narration text missing in the local mirror: one remote model response carries its narration and its tool calls as sibling blocks, and the mirror now writes them into a single assistant message instead of splitting the text into a message the tool-call message then replaced. |
 | DSH Link plugin | 1.3.6 | Prevents mirror Sessions from being auto-archived when a peer is offline, a v1 mirror layout is migrated, or a mapping is temporarily missing; keeps cached Workspaces and Session mappings and adds regression coverage. |

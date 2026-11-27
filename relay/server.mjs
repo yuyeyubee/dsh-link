@@ -34,10 +34,12 @@ const CALL_TIMEOUT_MS = 30_000; // §2.3 orphan call cleanup
 // one method a longer relay-side window (the caller still owns its own timeout).
 const SPEECH_CALL_TIMEOUT_MS = 180_000;
 // A question waits for a human, so the answering Host holds the call until the
-// user decides. This window must outlast the asking Host's own wait, otherwise
-// the relay reaps the call while the card is still on screen and the answer has
-// nowhere to go.
-const QUESTION_CALL_TIMEOUT_MS = 660_000;
+// user decides. This window outlasts the asking Host's own wait, otherwise the
+// relay would reap the call while the card is still on screen and the answer
+// would have nowhere to go. A blocking question has no deadline of its own, so
+// the window matches the asking Host's long one; a disconnect on either side
+// reaps the entry long before this, so the entry never outlives its sockets.
+const QUESTION_CALL_TIMEOUT_MS = 6 * 60 * 60_000;
 /** Relay window per method; every other method keeps the orphan-cleanup default. */
 const CALL_TIMEOUT_BY_METHOD = new Map([
   ['speech.transcribe', SPEECH_CALL_TIMEOUT_MS],

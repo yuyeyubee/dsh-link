@@ -34,7 +34,7 @@ export const name = 'dsh-link'
 export const inject = ['tools', 'systemPrompt', 'credentials']
 
 /** Version reported to peers and the Web UI. */
-const VERSION = '1.3.8'
+const VERSION = '1.3.9'
 /** On-disk config document version. */
 const CONFIG_VERSION = 1
 /** Same-origin API route used by the Client half. */
@@ -58,6 +58,14 @@ const MAX_PROMPT_IMAGES = 8
 const MAX_PROMPT_IMAGE_BYTES = 8 * 1024 * 1024
 /** How long a forwarded remote question stays open for a peer answer. */
 const QUESTION_TIMEOUT_MS = 10 * 60_000
+/**
+ * How long a *blocking* question stays open. A blocking `ask_user_question` has
+ * no deadline of its own — the Agent waits until the human answers — so the
+ * relayed offer must not invent one: the user may be away for hours. The relay
+ * reaps the call when either side disconnects, so this is a safety net, not the
+ * normal path.
+ */
+const QUESTION_BLOCKING_TIMEOUT_MS = 6 * 60 * 60_000
 /**
  * How long a question waits for the peers to accept or refuse it before the
  * local card may appear. A peer without a mirror refuses instantly; a peer that
@@ -1463,7 +1471,7 @@ class LinkHost {
           callId: question.callId,
           questions: question.questions,
           timed: question.timed,
-        }, QUESTION_TIMEOUT_MS).then((result) => {
+        }, question.timed === true ? QUESTION_TIMEOUT_MS : QUESTION_BLOCKING_TIMEOUT_MS).then((result) => {
           const answers = result !== null && typeof result === 'object' && Array.isArray(result.answers) ? result.answers : undefined
           if (answers !== undefined) {
             finish({ peer, answers })
@@ -1573,7 +1581,7 @@ class LinkHost {
       if (this.incomingQuestions.get(questionId) !== entry) return
       abort.abort(peerQuestionError('question wait timed out', 'ASK_TIMED_OUT'))
       finish({ kind: 'timeout' })
-    }, QUESTION_TIMEOUT_MS)
+    }, params?.timed === true ? QUESTION_TIMEOUT_MS : QUESTION_BLOCKING_TIMEOUT_MS)
     settled.then((result) => {
       if (result?.kind === 'answers') {
         relay.send({ t: 'reply', rid, ok: true, result: { answers: result.answers } })
@@ -2282,6 +2290,7 @@ class LinkHost {
     } catch {
       return
     }
+    const unmapped = []
     for (const item of Array.isArray(list) ? list : []) {
       if (item === null || typeof item !== 'object' || typeof item.sessionId !== 'string' || typeof item.cwd !== 'string') continue
       if (!item.cwd.startsWith(`${root}${sep}`)) continue
@@ -2290,7 +2299,12 @@ class LinkHost {
       // is disposable: the peer may be offline, or the mapping file may be
       // temporarily incomplete. Keep the Session recoverable and let an
       // explicit cleanup remove it; never auto-archive it on startup.
-      this.log('warn', `dsh-link: preserving unmapped mirror Session ${item.sessionId} in ${item.cwd}`)
+      unmapped.push(item.sessionId)
+    }
+    // One line per startup instead of one per orphaned Session: the rows are
+    // kept, so this is a diagnostic, not a fault worth a warning each time.
+    if (unmapped.length > 0) {
+      this.log('info', `dsh-link: keeping ${unmapped.length} unmapped mirror Session(s): ${unmapped.slice(0, 3).join(', ')}${unmapped.length > 3 ? ', …' : ''}`)
     }
   }
 

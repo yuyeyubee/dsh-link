@@ -262,7 +262,6 @@ window.__ModuleLoader__.load({
         'mirror.statusDone': 'Remote turn finished',
         'mirror.waitingAnswer': 'Waiting for your answer',
         'mirror.statusFailed': 'Remote turn failed',
-        'mirror.statusQueued': '{n} queued',
         'question.open': 'Answer',
         'question.title': 'Question from the remote session',
         'question.empty': 'No pending question.',
@@ -503,7 +502,6 @@ window.__ModuleLoader__.load({
         'mirror.statusDone': '远程已完成',
         'mirror.waitingAnswer': '等待你回答',
         'mirror.statusFailed': '远程运行失败',
-        'mirror.statusQueued': '排队 {n} 条',
         'question.open': '回答问题',
         'question.title': '远程会话的提问',
         'question.empty': '没有待回答的问题。',
@@ -549,7 +547,7 @@ window.__ModuleLoader__.load({
       .dsh-link-btn:not(:disabled):hover { background: var(--dsw-alias-interactive-bg-hover); }
       .dsh-link-btn:focus-visible { outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 1px; }
       .dsh-link-btn:disabled { opacity: .5; cursor: default; }
-      .dsh-link-btn.is-primary { border-color: var(--dsw-alias-state-business-primary); background: var(--dsw-alias-state-business-primary); color: var(--dsw-alias-label-primary-foreground, #fff); }
+      .dsh-link-btn.is-primary { border-color: var(--dsw-alias-state-business-primary); background: var(--dsw-alias-state-business-primary); color: var(--dsw-alias-label-primary-foreground); }
       .dsh-link-btn.is-primary:not(:disabled):hover { background: var(--dsw-alias-state-business-primary); filter: brightness(1.06); }
       .dsh-link-btn.is-danger { color: var(--dsw-alias-state-error-primary); }
       .dsh-link-btn.is-ghost { border-color: transparent; background: transparent; color: var(--dsw-alias-label-secondary); }
@@ -660,7 +658,7 @@ window.__ModuleLoader__.load({
       .dsh-link-composer-state { flex: 1; min-width: 0; font-size: 11px; line-height: 1.4; color: var(--dsw-alias-label-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .dsh-link-composer-buttons { display: flex; align-items: center; gap: 6px; flex: none; }
       .dsh-link-overlay { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; padding: 20px; background: var(--dsw-alias-bg-mask-1); }
-      .dsh-link-sheet { display: flex; flex-direction: column; width: min(520px, 100%); max-height: min(760px, calc(100dvh - 40px)); border: .5px solid var(--dsw-alias-border-l2); border-radius: 16px; background: var(--dsw-alias-bg-base); box-shadow: var(--dsw-elevation-prominent, 0 20px 60px rgba(0, 0, 0, .28)); overflow: hidden; }
+      .dsh-link-sheet { display: flex; flex-direction: column; width: min(520px, 100%); max-height: min(760px, calc(100dvh - 40px)); border: .5px solid var(--dsw-alias-border-l2); border-radius: 16px; background: var(--dsw-alias-bg-base); box-shadow: var(--dsw-elevation-prominent); overflow: hidden; }
       .dsh-link-sheet.is-wide { width: min(600px, 100%); }
       .dsh-link-sheet:focus { outline: none; }
       .dsh-link-sheet-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px 10px; border-bottom: .5px solid var(--dsw-alias-border-l3); }
@@ -680,7 +678,7 @@ window.__ModuleLoader__.load({
       .dsh-link-switch-track { position: relative; flex: none; width: 36px; height: 20px; border-radius: 999px; border: .5px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-layer-2); transition: background .16s ease, border-color .16s ease; }
       .dsh-link-switch-thumb { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--dsw-alias-label-primary); opacity: .65; transition: transform .16s ease, background .16s ease, opacity .16s ease; }
       .dsh-link-switch.is-on .dsh-link-switch-track { border-color: var(--dsw-alias-state-business-primary); background: var(--dsw-alias-state-business-primary); }
-      .dsh-link-switch.is-on .dsh-link-switch-thumb { transform: translateX(16px); background: #fff; opacity: 1; }
+      .dsh-link-switch.is-on .dsh-link-switch-thumb { transform: translateX(16px); background: var(--dsw-alias-label-primary-foreground); opacity: 1; }
       .dsh-link-switch:focus-within .dsh-link-switch-track { outline: 2px solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 2px; }
       .dsh-link-switch-label { font-size: 12.5px; font-weight: 500; color: var(--dsw-alias-label-primary); }
       .dsh-link-live-status { display: flex; align-items: center; gap: 5px; padding-left: 2px; font-size: 11px; line-height: 1.4; color: var(--dsw-alias-label-tertiary); }
@@ -787,13 +785,20 @@ window.__ModuleLoader__.load({
       .dsh-link-sidebar-rail-btn:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
 
       /* Conversation-header chip only; sidebar rows use the quieter glyph below. */
-      .dsh-link-remote-chip { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 999px; border: .5px solid var(--dsw-alias-brand-primary); color: var(--dsw-alias-brand-primary); background: var(--dsw-alias-bg-layer-2); font-size: 10px; font-weight: 600; line-height: 1; letter-spacing: .02em; white-space: nowrap; flex: none; }
-      .dsh-link-remote-chip.is-header { height: 22px; padding: 0 8px; font-size: 11px; font-weight: 500; }
+      /* Geometry copied from the shipped Tag so the header chip reads as one of
+         the header's own pills: padding 1px 8px over an 17px line box, 11px at
+         weight 500, fully rounded, and the neutral layer fill instead of a
+         brand-tinted border that no other header pill carries. */
+      .dsh-link-remote-chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 999px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 500; line-height: 17px; letter-spacing: 0; white-space: nowrap; flex: none; }
       /* A sidebar row annotates, it does not advertise: the group header already
          names the device, so a row carries one quiet glyph in a fixed box, set
          like the native pin indicator (label-caption) rather than a filled pill
          that outshouts the title it annotates. */
       .dsh-link-remote-mark { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 16px; color: var(--dsw-alias-label-caption); }
+      /* A pending remote answer is a native pending interaction in the native
+         path, so the row already carries DSH's own warning marker; this seat is
+         only the fallback card's hint and stays a dot, never a badge. */
+      .dsh-link-state-seat.is-question { color: var(--dsw-alias-state-warn-primary); }
       .dsh-link-native-gear.is-header.is-question { width: auto; padding: 0 8px; font-size: 11px; font-weight: 600; color: var(--dsw-alias-state-warn-label); }
       /* DSH's own Session state marker, copied block for block from the shipped
          StateDot: an orbiting arc while a turn runs, a plain tinted dot
@@ -818,8 +823,6 @@ window.__ModuleLoader__.load({
         .dsh-link-state-spinner-motion, .dsh-link-state-spinner-arc { animation: none; }
         .dsh-link-state-spinner-arc { stroke-dasharray: 18 150; stroke-dashoffset: -3; }
       }
-      .dsh-link-status-count { flex: none; font-size: 10px; line-height: 1; color: var(--dsw-alias-state-warn-label); }
-      .dsh-link-status-count.is-question { font-weight: 700; }
       .dsh-link-question { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
       .dsh-link-question-source { font-size: 11.5px; color: var(--dsw-alias-label-tertiary); margin-bottom: -6px; }
       .dsh-link-question-item { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: .5px solid var(--dsw-alias-border-l3); border-radius: 10px; background: var(--dsw-alias-bg-layer-1); }
@@ -897,7 +900,7 @@ window.__ModuleLoader__.load({
       .dsh-link-browser-session-badges { display: flex; align-items: center; gap: 4px; flex: none; }
       .dsh-link-browser-session-actions { flex: none; display: flex; align-items: center; gap: 1px; opacity: 0; transition: opacity .12s; }
       .dsh-link-browser-session:hover .dsh-link-browser-session-actions, .dsh-link-browser-session:focus-within .dsh-link-browser-session-actions, .dsh-link-browser-session-actions.is-open { opacity: 1; }
-      .dsh-link-browser-menu { position: absolute; top: calc(100% - 2px); right: 8px; z-index: 60; display: flex; flex-direction: column; min-width: 190px; padding: 4px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-2); box-shadow: var(--dsw-elevation-prominent, 0 10px 30px rgba(0, 0, 0, .22)); }
+      .dsh-link-browser-menu { position: absolute; top: calc(100% - 2px); right: 8px; z-index: 60; display: flex; flex-direction: column; min-width: 190px; padding: 4px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-2); box-shadow: var(--dsw-elevation-prominent); }
       .dsh-link-browser-menu.is-project { top: 32px; right: 34px; }
       .dsh-link-browser-menu-item { display: flex; align-items: center; gap: 7px; width: 100%; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; font-size: 12.5px; text-align: left; white-space: nowrap; cursor: pointer; }
       .dsh-link-browser-menu-item:hover { background: var(--dsw-alias-interactive-bg-hover); }
@@ -908,7 +911,7 @@ window.__ModuleLoader__.load({
       .dsh-link-browser-empty-title { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.4; color: var(--dsw-alias-label-primary); }
       .dsh-link-browser-empty-hint { margin: 0; max-width: 440px; font-size: 12.5px; line-height: 1.65; color: var(--dsw-alias-label-secondary); }
       .dsh-link-browser-empty-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 6px; }
-      .dsh-link-toast { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 1300; max-width: min(520px, calc(100% - 32px)); padding: 9px 14px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); box-shadow: var(--dsw-elevation-prominent, 0 10px 30px rgba(0, 0, 0, .22)); font-size: 12.5px; line-height: 1.5; }
+      .dsh-link-toast { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 1300; max-width: min(520px, calc(100% - 32px)); padding: 9px 14px; border: .5px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); box-shadow: var(--dsw-elevation-prominent); font-size: 12.5px; line-height: 1.5; }
       .dsh-link-toast.is-error { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
       .dsh-link-toast.is-ok { border-color: var(--dsw-alias-state-success-primary); color: var(--dsw-alias-state-success-primary); }
       .dsh-link-remote-panel { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -1241,11 +1244,20 @@ window.__ModuleLoader__.load({
       })
     }
 
-    /** Derive the row indicator from one live status record. */
+    /**
+     * Derive the row indicator from one live status record.
+     *
+     * Precedence copies the shipped row: an interaction awaiting the user
+     * outranks live activity, and live activity outranks a completion reminder.
+     * A question answered through DSH's own card is a native pending
+     * interaction, so the shipped row owns that marker; `questionId` is only set
+     * for the fallback card, and then it must still read as "waiting on you".
+     */
     function mirrorStatusView(live, sessionId, open) {
       if (live === null || typeof live !== 'object') return null
-      // A pending question is published as a native pending interaction, so the
-      // shipped row already shows its own warning dot for it.
+      if (typeof live.questionId === 'string' && live.questionId !== '') {
+        return { state: 'warning', label: 'mirror.waitingAnswer', question: true }
+      }
       if (live.running === true) return { state: 'ongoing', label: 'mirror.statusRunning' }
       if (open === true) return null
       const settledAt = Number.isFinite(live.settledAt) ? live.settledAt : 0
@@ -1256,13 +1268,6 @@ window.__ModuleLoader__.load({
       if (live.settleReason === 'completed') return { state: 'done', label: 'mirror.statusDone' }
       return null
     }
-    /** Human-readable queued count suffix for one live status record. */
-    function mirrorQueuedCount(live) {
-      return live !== null && typeof live === 'object' && Number.isFinite(live.queueCount) && live.queueCount > 0
-        ? live.queueCount
-        : 0
-    }
-
     /** Which remote question the answer card currently shows. */
     const questionStore = { target: null, listeners: new Set() }
     function notifyQuestion() {
@@ -1326,7 +1331,7 @@ window.__ModuleLoader__.load({
         const status = mirrorStatusView(live, sessionId, open)
         if (status === null) return null
         return React.createElement('span', {
-          className: 'dsh-link-state-seat',
+          className: cls('dsh-link-state-seat', status.question === true ? 'is-question' : ''),
           role: 'status',
           title: t(status.label),
           'aria-label': t(status.label),
@@ -1340,19 +1345,11 @@ window.__ModuleLoader__.load({
         const mirror = useMirrorItem(sessionId)
         const live = useLiveStatus(sessionId)
         if (mirror === undefined) return null
-        const queued = mirrorQueuedCount(live)
-        const waitingQuestion = live !== null && typeof live === 'object' && typeof live.questionId === 'string' && live.questionId !== ''
+        // The row already reports running/waiting in its leading seat and, for a
+        // native card, DSH's own pending marker; a second badge there would be
+        // the only non-native thing in the sidebar. The trailing seat keeps just
+        // the device glyph that says this Session lives on another computer.
         return React.createElement(React.Fragment, null,
-          waitingQuestion ? React.createElement('span', {
-            className: 'dsh-link-status-count is-question',
-            title: t('mirror.waitingAnswer'),
-            'aria-label': t('mirror.waitingAnswer'),
-            role: 'status',
-          }, '?') : null,
-          queued > 0 ? React.createElement('span', {
-            className: 'dsh-link-status-count',
-            title: t('mirror.statusQueued', { n: queued }),
-          }, String(queued)) : null,
           React.createElement('span', {
             className: 'dsh-link-remote-mark',
             title: `${t('mirror.badge')} · ${mirror.deviceName ?? ''}`,
