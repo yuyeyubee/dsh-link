@@ -1749,6 +1749,45 @@ test('a peer question falls back to the plugin card when no Agent can host it', 
   host.cancelQuestion('dev_peer:session-remote:call-9')
 })
 
+test('a pending native question is found from the log and answerable without the card', async () => {
+  const { host, services } = makeMirrorHost()
+  const session = makeFakeSession('session-mirror')
+  session.append('turn/start', { turn: 1 })
+  session.append('tool/call', { turn: 1, step: 1, callId: 'call-ask', name: 'ask_user_question', arguments: '{"questions":[]}' })
+  // The question is still open: no tool/result names its call yet.
+  services.sessions = { get: (id) => (id === 'session-mirror' ? session : undefined) }
+  services.sessionController.resolveAgent = async () => ({ agent: { id: 'session-mirror', session } })
+  const asked = []
+  services.userQuestions = {
+    answer(agent, callId, answer) {
+      asked.push([agent.id, callId, answer.answers])
+      return true
+    },
+  }
+
+  const pending = await host.nativeQuestionState('session-mirror')
+  assert.equal(pending.pending, true)
+  assert.equal(pending.callId, 'call-ask')
+
+  const result = await host.answerNativeQuestion('session-mirror', [{ id: 'q1', selected: ['A'], custom: '好吧' }])
+  assert.deepEqual(result, { ok: true, callId: 'call-ask' })
+  assert.deepEqual(asked, [['session-mirror', 'call-ask', [{ id: 'q1', selected: ['A'], custom: '好吧' }]]])
+})
+
+test('a settled native question is no longer reported as pending', async () => {
+  const { host, services } = makeMirrorHost()
+  const session = makeFakeSession('session-mirror')
+  session.append('tool/call', { turn: 1, step: 1, callId: 'call-ask', name: 'ask_user_question', arguments: '{}' })
+  session.append('tool/result', {
+    turn: 1,
+    step: 1,
+    message: { role: 'tool', toolCallId: 'call-ask', source: { kind: 'tool', callId: 'call-ask' }, content: [{ type: 'text', text: '{"answers":[]}' }] },
+  })
+  services.sessions = { get: (id) => (id === 'session-mirror' ? session : undefined) }
+  const pending = await host.nativeQuestionState('session-mirror')
+  assert.equal(pending.pending, false)
+})
+
 test('a question nobody can answer delegates to the shipped answerers', async () => {
   const { host } = makeMirrorHost()
   host.peers = []

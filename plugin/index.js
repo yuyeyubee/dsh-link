@@ -34,7 +34,7 @@ export const name = 'dsh-link'
 export const inject = ['tools', 'systemPrompt', 'credentials']
 
 /** Version reported to peers and the Web UI. */
-const VERSION = '1.3.10'
+const VERSION = '1.3.11'
 /** On-disk config document version. */
 const CONFIG_VERSION = 1
 /** Same-origin API route used by the Client half. */
@@ -1624,6 +1624,79 @@ class LinkHost {
     entry.abort?.abort(peerQuestionError('question answered by another device', 'ASK_ABORTED'))
     entry.resolve?.({ kind: 'cancelled' })
     return true
+  }
+
+  /**
+   * The ask_user_question call a Session already logged without a result.
+   *
+   * A question is answered by its tool-call id, and the log is the only place
+   * that id survives a restart: the newest call with no matching result is the
+   * one still open.
+   */
+  openNativeQuestionCall(session) {
+    const open = []
+    for (const event of session.snapshotEvents()) {
+      if (event.type === 'tool/call' && event.data?.name === 'ask_user_question') open.push(event.data.callId)
+      else if (event.type === 'tool/result') {
+        const callId = event.data?.message?.toolCallId
+        const index = typeof callId === 'string' ? open.lastIndexOf(callId) : -1
+        if (index >= 0) open.splice(index, 1)
+      }
+    }
+    return open.at(-1)
+  }
+
+  /** Read the pending native question of one local Session, if it holds one. */
+  async nativeQuestionState(localSessionId) {
+    const controller = this.service('sessionController')
+    if (controller === undefined) return { pending: false, reason: 'unavailable' }
+    const sessions = this.service('sessions')
+    const attached = sessions?.get(localSessionId)
+    if (attached === undefined) return { pending: false, reason: 'not-attached' }
+    const callId = this.openNativeQuestionCall(attached)
+    if (callId === undefined) return { pending: false }
+    const state = await this.sessionState(localSessionId).catch(() => null)
+    return {
+      pending: true,
+      callId,
+      pendingInput: Array.isArray(state?.pendingInput) ? state.pendingInput : [],
+      running: state?.running === true,
+    }
+  }
+
+  /**
+   * Answer a pending native question without the Web card.
+   *
+   * The card is the normal path; this exists for diagnostics and for the case
+   * where no client is attached to the mirror, so a question never has to
+   * expire with the answering Agent still blocked.
+   */
+  async answerNativeQuestion(localSessionId, answers) {
+    const controller = this.service('sessionController')
+    const userQuestions = this.service('userQuestions')
+    if (controller === undefined || userQuestions === undefined) return { ok: false, reason: 'unavailable' }
+    if (typeof userQuestions.answer !== 'function') return { ok: false, reason: 'no-answer-api' }
+    const normalized = []
+    for (const item of Array.isArray(answers) ? answers : []) {
+      if (item === null || typeof item !== 'object') continue
+      const id = typeof item.id === 'string' ? item.id : ''
+      if (id.length === 0) continue
+      const selected = Array.isArray(item.selected) ? item.selected.filter((value) => typeof value === 'string') : []
+      const custom = typeof item.custom === 'string' && item.custom.trim().length > 0 ? item.custom : undefined
+      normalized.push({ id, selected, ...(custom === undefined ? {} : { custom }) })
+    }
+    if (normalized.length === 0) return { ok: false, reason: 'bad-answer' }
+    const resolved = await Promise.resolve().then(() => controller.resolveAgent(localSessionId)).catch(() => undefined)
+    const agent = resolved !== null && typeof resolved === 'object' ? resolved.agent : undefined
+    if (agent === undefined) return { ok: false, reason: 'no-agent' }
+    const callId = this.openNativeQuestionCall(agent.session)
+    if (callId === undefined) return { ok: false, reason: 'no-open-question' }
+    try {
+      const accepted = userQuestions.answer(agent, callId, { answers: normalized })
+      return { ok: accepted === true, callId }
+    } catch (error) {
+      return { ok: false, reason: errorMessage(error) }
+    }
   }
 
   /** The pending question of one local mirror Session, if any. */
@@ -4714,6 +4787,17 @@ class LinkHost {
         this.unwatchMirror(sessionId)
         return { watching: false }
       }
+      case 'native-question': {
+        // The pending question a mirror Session holds through DSH's own
+        // `userQuestions` projection, i.e. the card the local user sees.
+        const sessionId = this.requireSessionId(extra?.sessionId)
+        return await this.nativeQuestionState(sessionId)
+      }
+      case 'answer-question': {
+        const sessionId = this.requireSessionId(extra?.sessionId)
+        const answers = Array.isArray(extra?.answers) ? extra.answers : []
+        return await this.answerNativeQuestion(sessionId, answers)
+      }
       case 'questions': {
         return {
           items: [...this.incomingQuestions.values()].map((entry) => ({
@@ -5018,17 +5102,31 @@ function toolDefinitions(host) {
       parameters: {
         type: 'object',
         properties: {
-          what: { type: 'string', enum: ['config', 'sessions', 'titles', 'workspaces', 'speech', 'events', 'raw', 'list', 'state', 'follow', 'speech-test', 'mirror-probe', 'mirror-list', 'mirror-cleanup', 'types', 'tree', 'remote-tree', 'ensure-mirror', 'workspace-snapshot', 'models', 'presets', 'session-info', 'archive-state', 'archive-probe', 'streams', 'rebuild-mirrors', 'watch', 'unwatch', 'questions'] },
+          what: { type: 'string', enum: ['config', 'sessions', 'titles', 'workspaces', 'speech', 'events', 'raw', 'list', 'state', 'follow', 'speech-test', 'mirror-probe', 'mirror-list', 'mirror-cleanup', 'types', 'tree', 'remote-tree', 'ensure-mirror', 'workspace-snapshot', 'models', 'presets', 'session-info', 'archive-state', 'archive-probe', 'streams', 'rebuild-mirrors', 'watch', 'unwatch', 'questions', 'native-question', 'answer-question'] },
           session_id: { type: 'string', description: 'Required when what is events/raw/state/follow.' },
           before_seq: { type: 'number', description: 'Optional raw-event page cursor.' },
           device: { type: 'string', description: 'Target peer for mirror-probe.' },
           title: { type: 'string', description: 'Mirror title for mirror-probe.' },
+          answers: {
+            type: 'array',
+            description: 'Answers for answer-question: one { id, selected[], custom? } per question.',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string' },
+                selected: { type: 'array', items: { type: 'string' } },
+                custom: { type: 'string' },
+              },
+              required: ['id'],
+              additionalProperties: false,
+            },
+          },
         },
         required: ['what'],
         additionalProperties: false,
       },
       async execute(args) {
-        const value = await host.debugInfo(args.what, { sessionId: args.session_id, beforeSeq: args.before_seq, device: args.device, title: args.title })
+        const value = await host.debugInfo(args.what, { sessionId: args.session_id, beforeSeq: args.before_seq, device: args.device, title: args.title, answers: args.answers })
         return JSON.stringify(value, null, 2)
       },
     }),

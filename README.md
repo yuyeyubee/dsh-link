@@ -3,7 +3,7 @@
 > 用一台你自己的公网 relay，把多台电脑上的 **DeepSeek Harness（DSH）** 和 **Android 手机** 连成一个只属于你的私有空间：在这台电脑上直接看到、打开、操作另一台电脑的 DSH 会话；本机 AI 也能用工具驱动远程 DSH；手机可以连接多台电脑，并用语音输入把话发到指定电脑、由那台电脑本地识别后把文字传回手机。
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Plugin](https://img.shields.io/badge/plugin-1.3.10-brightgreen)
+![Plugin](https://img.shields.io/badge/plugin-1.3.11-brightgreen)
 ![Protocol](https://img.shields.io/badge/protocol-v1-blue)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84)
 
@@ -330,6 +330,7 @@ node tools/probe-client.mjs --pairing-file ~/.dsh/dsh-link/pairing-code.txt --me
 
 | 组件 | 版本 | 说明 |
 | --- | --- | --- |
+| DSH Link 插件 | 1.3.11 | `link_debug` 新增 `native-question` 与 `answer-question`：可以查看某个镜像会话是否挂着一张原生提问卡片，也可以在无法操作界面时直接提交答案，避免提问到期而远端 Agent 一直等；两处都从会话日志回读提问的 callId，重启后依然有效。|
 | DSH Link 插件 | 1.3.10 | 状态标记全部改用原生 StateDot：连接、流、会话运行/完成/出错、对端在线共用同一套点与旋转弧；弹窗、菜单、输入框、悬浮提示改用原生圆角与面板色值，去掉插件自造的圆角与底色。|
 | DSH Link 插件 | 1.3.9 | 界面与 DSH 原生保持一致：侧栏运行标志改用原生 StateDot（运行中是同一套旋转弧与节奏），去掉自造的 `?` 与排队数字徽标、把尴尬的等待状态并入原生状态点优先级；会话头部设备胶囊改为原生 Tag 的几何与配色；插件样式不再保留硬编码颜色兜底。阻塞式提问不再有 10 分钟上限（中继与主机都放宽到 6 小时，任一端断线即回收），离开电脑也不会丢失提问；启动日志把「保留未映射镜像会话」合并成一行。|
 | DSH Link 插件 | 1.3.8 | 远程提问改为使用 DSH 原生提问卡片：对端的提问直接在本机镜像会话里按原生 `userQuestions.ask` 弹出（选项、自定义答案、待回答指示都与 DSH 自带的一致），不再使用插件自己的弹窗；只有无法在本机承载原生卡片时才回退到插件卡片。提出方在镜像机器展示卡片期间不再重复弹出本地卡片，避免回答后对端残留一张永远关不掉的卡片；中继把 `session.question` 的等待窗口放宽到 660 秒，等人回答期间调用不会被提前回收。|

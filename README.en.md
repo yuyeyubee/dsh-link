@@ -3,7 +3,7 @@
 > One private relay of your own connects **DeepSeek Harness (DSH)** installations on several computers and an **Android phone** into a private space that belongs only to you: browse and drive another computer's DSH Sessions from this one, let the local agent steer a remote DSH with tools, and use voice input on the phone while recognition stays on the target computer.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-![Plugin](https://img.shields.io/badge/plugin-1.3.10-brightgreen)
+![Plugin](https://img.shields.io/badge/plugin-1.3.11-brightgreen)
 ![Protocol](https://img.shields.io/badge/protocol-v1-blue)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3ddc84)
 
@@ -325,6 +325,7 @@ Deeper design notes live in [docs/architecture.md](docs/architecture.md); instal
 
 | Component | Version | Notes |
 | --- | --- | --- |
+| DSH Link plugin | 1.3.11 | `link_debug` gains `native-question` and `answer-question`: read whether a mirror Session holds a native question card, and submit the answer when the UI cannot be driven, so a question never expires with the remote Agent still waiting. Both read the call id back from the Session log, so they survive a restart. |
 | DSH Link plugin | 1.3.10 | Every status marker is now the shipped StateDot (connections, transcript streams, running/done/error rows and online peers share one dot and orbiting arc), and dialogs, menus, the composer surface and toasts use the shipped radius and panel colours instead of plugin-invented ones. |
 | DSH Link plugin | 1.3.9 | Matches DSH's own chrome: the sidebar running marker is the shipped StateDot (same orbiting arc and timing), the custom `?` and queued-count badges are gone in favour of the native status precedence, the header device pill uses the shipped Tag geometry and colours, and the plugin stylesheet keeps no hardcoded colour fallbacks. Blocking questions no longer expire after ten minutes (relay and Host both hold them for six hours, reaped on either disconnect), and startup folds "kept unmapped mirror Sessions" into one line. |
 | DSH Link plugin | 1.3.8 | Remote questions now use DSH's own question card: a peer's question is raised on the local mirror Session through the native `userQuestions.ask`, so options, custom answers and the pending-interaction indicator all match DSH, and the plugin's own dialog is gone. The asking Host no longer stacks a second local card while the mirror Host shows one, which used to leave an unsettleable card behind after the answer, and the relay keeps `session.question` open for 660s so a waiting call is not reaped mid-question. |
